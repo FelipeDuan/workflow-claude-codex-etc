@@ -1,5 +1,5 @@
 ---
-description: "Runs a defensive security audit on the specified project or code section, covering authentication, authorization, input validation, secrets, sensitive data, dependencies, and OWASP and LGPD risks. Use when Bea asks for a security audit, a security review, a vulnerability check, exposed secrets, access control or LGPD compliance; do not use for offensive testing."
+description: "Runs a defensive security audit on the specified project or code section, covering authentication, authorization, input validation, secrets, sensitive data, dependencies, and OWASP and LGPD risks. Use when the user asks for a security audit, a security review, a vulnerability check, exposed secrets, access control or LGPD compliance; do not use for offensive testing."
 ---
 
 Run a defensive security audit on the specified project or code section.

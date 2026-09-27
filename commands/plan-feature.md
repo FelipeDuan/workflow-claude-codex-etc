@@ -1,5 +1,5 @@
 ---
-description: "Plans a feature before implementing it, covering understanding, essential and out-of-scope items, backend, frontend and security impact, test plan, acceptance criteria and implementation order. Use when Bea asks to plan, break down into tasks, define scope or build a technical plan for a new feature."
+description: "Plans a feature before implementing it, covering understanding, essential and out-of-scope items, backend, frontend and security impact, test plan, acceptance criteria and implementation order. Use when the user asks to plan, break down into tasks, define scope or build a technical plan for a new feature."
 ---
 
 Plan the requested feature before implementing it.

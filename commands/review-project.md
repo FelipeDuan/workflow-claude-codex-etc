@@ -1,5 +1,5 @@
 ---
-description: "Runs a critical technical review of the project, covering architecture, folder structure, code quality, security, tests, documentation, inconsistent patterns, overengineering and maintenance risks, with a prioritized remediation plan. Use when Bea asks for a general review, a diagnosis, a health check or a broad analysis of the project's state."
+description: "Runs a critical technical review of the project, covering architecture, folder structure, code quality, security, tests, documentation, inconsistent patterns, overengineering and maintenance risks, with a prioritized remediation plan. Use when the user asks for a general review, a diagnosis, a health check or a broad analysis of the project's state."
 ---
 
 Critically review the current project.

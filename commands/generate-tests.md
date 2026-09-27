@@ -1,5 +1,5 @@
 ---
-description: "Generates a test plan and, if requested, implements unit, integration, e2e, contract and regression tests compatible with the project's stack. Use when Bea asks for tests, a test plan, coverage of a feature or module, error and permission cases, or a regression test for a fixed bug."
+description: "Generates a test plan and, if requested, implements unit, integration, e2e, contract and regression tests compatible with the project's stack. Use when the user asks for tests, a test plan, coverage of a feature or module, error and permission cases, or a regression test for a fixed bug."
 ---
 
 Generate a test plan and, if requested, implement tests compatible with the project's stack.

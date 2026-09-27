@@ -1,5 +1,5 @@
 ---
-description: "Creates or reviews documentation for a project, module, API or feature, such as a README, setup guide, ADR, changelog, contributing guide, user manual, architecture and deploy docs. Use when Bea asks to document something, write or update a README, create an ADR, a changelog, API docs or installation and deploy instructions."
+description: "Creates or reviews documentation for a project, module, API or feature, such as a README, setup guide, ADR, changelog, contributing guide, user manual, architecture and deploy docs. Use when the user asks to document something, write or update a README, create an ADR, a changelog, API docs or installation and deploy instructions."
 ---
 
 Create or review documentation for the specified project, module, API or feature.

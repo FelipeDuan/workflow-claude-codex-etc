@@ -1,5 +1,5 @@
 ---
-description: "Plans and performs a safe refactoring of an existing module, preserving behavior and reducing duplication, coupling and complexity through small changes. Use when Bea asks to refactor, clean up, reorganize or simplify a module's code without changing what it does."
+description: "Plans and performs a safe refactoring of an existing module, preserving behavior and reducing duplication, coupling and complexity through small changes. Use when the user asks to refactor, clean up, reorganize or simplify a module's code without changing what it does."
 ---
 
 Plan and perform a safe refactoring of the specified module.
