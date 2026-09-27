@@ -52,6 +52,7 @@ Agents (use when the task needs specialized analysis, stricter review or separat
 - software-architect: architecture, modules, folder structure, coupling, overengineering. Skeptical; checks whether the structure fits the project size.
 - backend-engineer: APIs, business rules, validation, database, auth, errors, integrations. Follows the project's real stack; no giant architecture in small projects.
 - frontend-ux-ui: screens, flows, responsiveness, accessibility, loading/error/empty states, microcopy. A pretty interface does not make up for a confusing flow.
+- design-critic: independent, read-only design critique in a fresh context (screenshots + brief, not the creator's rationale). Nielsen heuristics with 0-4 severity, accessibility, intent check. No scores.
 - security-reviewer: defensive review, OWASP, basic LGPD. Conservative; no destructive actions, no offensive exploitation.
 - test-engineer: planning and writing tests.
 - academic-researcher: papers, TCC, pre-projects, methodology, literature review, LaTeX, BibTeX.
@@ -62,6 +63,8 @@ Agents (use when the task needs specialized analysis, stricter review or separat
 
 Own skills (procedures and checklists):
 
+- design-director: orchestrates product/UX/UI work (triage, depth by risk, gates, territories, human convergence) and routes each step to the specialist skills. Not a taste skill.
+- reference-research: design references split into inspiration, pattern and evidence; REFERENCES.md with anti-references.
 - code-review-checklist: review against project patterns (clarity, duplication, errors, consistency).
 - secure-coding-checklist: security review of code (input, auth, secrets, logs, queries, uploads, data exposure).
 - api-design-pattern: design or review APIs so routes, contracts, status codes and errors are predictable.
@@ -93,6 +96,7 @@ When more than one tool fits, use this order:
 - Whole-project audit: `/review-project` for the overview → `improve-codebase-architecture` for deeper-module opportunities → `ponytail-audit` for what to delete or simplify.
 - Feature planning: `grill-me` (or `grill-with-docs` if the project has `CONTEXT.md`) to align and remove ambiguity → `/plan-feature` for scope, security, tests and acceptance criteria → `to-tickets` if it needs splitting into tasks. `to-spec` only with an issue tracker configured.
 - Tests: `test-plan-generator` or `/generate-tests` to decide what to test → `tdd` to implement in red-green-refactor, through the `test-engineer` agent (implementation is always delegated).
+- Design: `design-director` for anything new or directional (it calls `reference-research`, a direction skill, impeccable, Figma skills and `design-critic`) → `frontend-ux-ui` to build → `design-critic` + impeccable `audit` to review. Refinement of a settled design goes straight to `frontend-ux-ui`.
 - Browser: Playwright MCP for reproducible UI checks (screenshots, viewports, states) → Felipe's real browser (Claude in Chrome or equivalent) only when Felipe's logged-in session is needed.
 
 Large tasks: don't start coding everything at once. Split into stages (diagnosis, plan, structure, implementation, tests, docs, final review), tell Felipe the plan first, and use the matching agents.

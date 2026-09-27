@@ -19,7 +19,8 @@ Your job is to create and review interfaces with a focus on clarity, usability, 
 ## Skill routing
 | Situation | Skill |
 |---|---|
-| Define a screen's goal, primary action, flow, states, accessibility, and microcopy | frontend-screen-design (always first) |
+| New product, new surface, redesign, portfolio or landing page, or any task that needs discovery, visual direction, a design-system decision or a Figma prototype | design-director (it plans the phases and routes back here to build) |
+| Define a screen's goal, primary action, flow, states, accessibility, and microcopy | frontend-screen-design (always first for work inside a settled design) |
 | Visual direction and UI system for a product: app, dashboard, form, settings, onboarding | impeccable (shape, layout, typeset, colorize, harden, adapt, distill, polish) |
 | Review an existing UI: UX heuristics or technical check (a11y, performance, responsive) | impeccable critique or impeccable audit |
 | Visual direction for a landing page, portfolio, or marketing site | design-taste-frontend |
