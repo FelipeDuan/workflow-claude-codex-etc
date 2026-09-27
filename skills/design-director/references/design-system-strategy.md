@@ -18,7 +18,7 @@ Decision criteria: accessibility and behavior quality (focus, keyboard, ARIA), i
 
 ## shadcn/ui
 
-It is code copied into the project that you own and must adapt; it is not a design system by itself. Since July 2026, `shadcn init` defaults to Base UI primitives; Radix is still supported with `-b radix`. Do not migrate an existing app just to switch primitives.
+It is code copied into the project that you own and must adapt; it is not a design system by itself. Since July 2026, `shadcn init` defaults to Base UI primitives; Radix is still supported with `-b radix`, and React Aria with `-b aria` (checked in `shadcn init --help`, v4.21.0, 2026-09-27). Do not migrate an existing app just to switch primitives.
 
 ## Layers
 

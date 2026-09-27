@@ -7,8 +7,8 @@ A territory is a conceptually distinct answer to the brief: a different idea of 
 | Risk / novelty | Territories |
 |---|---|
 | Low (personal page, internal tool with a known pattern) | 2-3, or skip and go with one argued direction |
-| Medium | 3-5 |
-| High or novel (new product, public brand, redesign) | 5-7 |
+| Default | 3–5 |
+| New public brand or identity-driven work (portfolio) | 5–7 |
 
 More than 7 is noise the user cannot compare.
 
@@ -16,7 +16,7 @@ More than 7 is noise the user cannot compare.
 
 1. Start from PRODUCT.md, the UX flows and REFERENCES.md. Every territory must serve the same tasks.
 2. Vary the idea, not the surface. Useful axes: the governing metaphor (archive, instrument, workshop, conversation, map), the narrative (who is speaking and to whom), the content model (what is the unit: project, story, record, metric), the density and pace, the interaction model (browse, search, command, guided).
-3. Write each territory in the template below before any visual work.
+3. Write the axis table for all territories first (see the orthogonality test), then expand each in the template below before any visual work, so later ones don't drift toward the first.
 4. Run the orthogonality test. Drop or merge failures.
 5. If Figma is available, build side-by-side boards (one frame per territory, the same real content in each) so the comparison is visual and fair.
 
@@ -43,7 +43,14 @@ Deliberately not doing:
 
 ## Orthogonality test
 
-For each pair of territories ask: can I get from A to B by changing only color, typeface, radius, shadow or ornament? If yes, they are the same territory. Also reject a territory whose "deliberately not doing" is empty: without a refusal there is no concept.
+Before writing, assign each territory a distinct value on the axes (a small table):
+
+| Territory | Metaphor | Content model | Interaction model | Density/pace |
+|---|---|---|---|---|
+| T1 | | | | |
+| T2 | | | | |
+
+Any pair must differ on at least two of: metaphor, content model, interaction model, density/pace. Changing only color, type, radius, shadow or ornament never counts. Reject a territory whose "deliberately not doing" is empty.
 
 ## Comparison matrix
 

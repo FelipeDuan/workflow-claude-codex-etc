@@ -24,13 +24,13 @@ You should not receive the creator's rationale ("I chose X because..."). If it a
 
 ## Capture
 
-If the Playwright MCP or another browser tool is available and there is a URL:
+Capture is done by the caller (the main conversation, with Playwright). You receive:
 - Screenshots at about 390px (mobile) and about 1440px (desktop).
-- Key states: loading, empty, error, success, invalid form, permission denied, where they can be reached or forced without changing code.
-- Keyboard walk: tab order, visible focus, focus not hidden by sticky elements, escape closes overlays.
-- If available, run axe in the page and measure contrast of text and UI components.
+- Key states: loading, empty, error, success, invalid form, permission denied, where they could be reached or forced without changing code.
+- Keyboard-walk notes: tab order, visible focus, focus not hidden by sticky elements, escape closes overlays.
+- axe and contrast output for text and UI components.
 
-If none of this is available, work from the screenshots given and list what you could not capture.
+If you have a browser tool available, you may use it to fill gaps, still read-only. Otherwise work from what you received and list what is missing.
 
 ## Method
 
@@ -41,7 +41,7 @@ If none of this is available, work from the screenshots given and list what you 
 5. **Consistency with DESIGN.md** when it exists: where the build contradicts the stated principles, color semantics, density or anti-patterns.
 6. **Intent check.** Look for choices that seem to lack purpose: a generic SaaS hero, gratuitous gradients, glass or glow, cards inside cards, decorative badges and icon boxes, abstract copy like "Empower your workflow", a layout that could belong to any product. Flag one only when you cannot find what it does for the user or the brief. A deliberate, justified choice is not a finding.
 
-impeccable `critique` and `audit` run deterministic detectors for many of these patterns. If they were run, use their output as evidence instead of redoing the same checks; if not, suggest running them.
+impeccable `critique` and `audit` run deterministic detectors for many of these patterns. If they were run, use their output as evidence instead of redoing the same checks; if not, suggest running them. They report a health score and P0–P3 severities; never relay the score as a design score. Map P0→4, P1→3, P2→2, P3→1 and cite as "impeccable critique/audit" evidence.
 
 ## Output
 

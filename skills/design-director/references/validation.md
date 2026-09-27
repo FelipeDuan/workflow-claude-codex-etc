@@ -37,6 +37,8 @@ Severity, Nielsen's 0-4 scale:
 
 Heuristic evaluation is expert inspection. It is not user research and does not tell you what users will do.
 
+impeccable critique/audit report a health score and P0–P3 severities; never relay the score as a design score. Map P0→4, P1→3, P2→2, P3→1 and cite as "impeccable critique/audit" evidence.
+
 ## Finding format
 
 ```
@@ -66,10 +68,11 @@ Report raw counts with n ("4 of 5 completed"). No composite "UX score". With sma
 
 - Contrast: 4.5:1 for normal text, 3:1 for large text, 3:1 for non-text UI components and meaningful graphics.
 - Target size minimum 24×24 CSS px, or enough spacing (SC 2.5.8).
+- Focus visible on every interactive element (SC 2.4.7, AA).
 - Focus not obscured by sticky headers, banners or overlays (SC 2.4.11).
 - Dragging movements have a single-pointer alternative (SC 2.5.7).
 - Reflow at 320 CSS px width without two-dimensional scrolling (SC 1.4.10).
-- Respect prefers-reduced-motion.
+- Respect prefers-reduced-motion (good practice; SC 2.3.3 is AAA).
 
 Automate: axe via Playwright, contrast math, target size measurement, reflow screenshots.
 Needs manual or qualitative checking: screen reader flow and announcements, meaningful alt text, reading and focus order making sense, error messages being understandable, cognitive load.

@@ -46,7 +46,7 @@ Default, no setup: web search and fetch, the user's own screenshots, and Playwri
 
 Optional MCP servers. None are installed by default; suggest one only when it clearly helps, and let the user decide:
 
-- **Pablooo** (`https://mcp.pablooo.club`): free, no account, around 8k screenshots. It is a closed hosted service by Graines SAS, with no public repository or license, and its privacy policy does not document query logging. Send only generic search terms, never code, file contents or client data. Install: `claude mcp add --transport http pablooo --scope user https://mcp.pablooo.club`
+- **Pablooo** (`https://mcp.pablooo.club`): free, no account, around 8k screenshots. It is a closed hosted service by Graines SAS, with no public repository or license, and its privacy policy does not document query logging. Send only generic search terms, never code, file contents or client data. Install: `claude mcp add --transport http pablooo --scope user https://mcp.pablooo.club` (Codex: `codex mcp add pablooo --url https://mcp.pablooo.club`)
 - **Mobbin MCP** (official, `https://api.mobbin.com/mcp`): requires a paid Pro or Team plan.
 - **Refero MCP** (`https://api.refero.design/mcp`): paid plans only.
 

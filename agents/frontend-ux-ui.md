@@ -19,12 +19,12 @@ Your job is to create and review interfaces with a focus on clarity, usability, 
 ## Skill routing
 | Situation | Skill |
 |---|---|
-| New product, new surface, redesign, portfolio or landing page, or any task that needs discovery, visual direction, a design-system decision or a Figma prototype | design-director (it plans the phases and routes back here to build) |
+| New product, new surface, redesign, portfolio or landing page, or any task that needs discovery, visual direction, a design-system decision or a Figma prototype | stop and return to the caller recommending design-director (it runs in the main conversation because it needs human checkpoints and subagents) |
 | Define a screen's goal, primary action, flow, states, accessibility, and microcopy | frontend-screen-design (always first for work inside a settled design) |
 | Visual direction and UI system for a product: app, dashboard, form, settings, onboarding | impeccable (shape, layout, typeset, colorize, harden, adapt, distill, polish) |
 | Review an existing UI: UX heuristics or technical check (a11y, performance, responsive) | impeccable critique or impeccable audit |
 | Visual direction for a landing page, portfolio, or marketing site | design-taste-frontend |
-| Redesign an existing marketing site | redesign-existing-projects |
+| Redesign an existing marketing site, after design-director set the direction | redesign-existing-projects |
 | Aesthetic named by the user (minimalist, brutalist, premium agency) | minimalist-ui, industrial-brutalist-ui, or high-end-visual-design, instead of design-taste-frontend |
 | Component polish, interaction details, animation decisions | emil-design-eng |
 | Build a web animation | animate |

@@ -2,22 +2,22 @@
 
 ## O que é
 
-Um conjunto de skills e agents que organiza trabalho de produto, UX e UI com profundidade proporcional ao risco. A skill `design-director` faz a triagem, monta um plano de fases, cobra evidência em cada gate e passa cada etapa para o especialista certo. Ela não tem gosto próprio e não escreve código de interface. Quem implementa continua sendo o agent `frontend-ux-ui`. As regras completas estão em `skills/design-director/SKILL.md`; este documento explica como as peças se encaixam e o que fazer quando algo dá errado.
+Um conjunto de skills e agents que organiza trabalho de produto, UX e UI com profundidade proporcional ao risco. A skill `design-director` faz a triagem, monta um plano de fases, cobra evidência em cada gate e passa cada etapa para o especialista certo. Ela não tem gosto próprio e não escreve código de interface. Roda na conversa principal, porque precisa parar para ouvir você nos checkpoints e disparar subagents (um subagent do Claude Code não consegue fazer nenhuma das duas coisas). Quem implementa continua sendo o agent `frontend-ux-ui`. As regras completas estão em `skills/design-director/SKILL.md`; este documento explica como as peças se encaixam e o que fazer quando algo dá errado.
 
 ## Arquitetura
 
 ```
 usuário
-  └─> frontend-ux-ui  (porta de entrada; refinamento para aqui)
-        └─> design-director  (trabalho novo ou direcional)
-              ├─ reference-research   referências -> REFERENCES.md
-              ├─ skill de direção     frontend-design OU design-taste-frontend (uma só)
-              ├─ impeccable           shape, document, critique, audit, polish...
-              ├─ skills do Figma      figma-use primeiro, depois as outras
-              └─ design-critic        crítica read-only em contexto novo
-        └─> frontend-ux-ui  (build com PRODUCT.md, DESIGN.md, fluxos e findings aceitos)
-              └─> QA  (Playwright 390/1440 px, estados, teclado, impeccable audit, design-critic)
+  └─> design-director  (conversa principal; triagem, plano, gates, checkpoints)
+        ├─ reference-research   referências -> REFERENCES.md
+        ├─ skill de direção     impeccable (produto) OU design-taste-frontend (marketing), uma só
+        ├─ impeccable           shape, document, critique, audit, polish...
+        ├─ skills do Figma      figma-use primeiro, depois as outras
+        ├─> frontend-ux-ui      build (subagent) com PRODUCT.md, DESIGN.md, fluxos e findings aceitos
+        ├─> design-critic       subagent, contexto limpo: recebe brief, tarefas, DESIGN.md e capturas
+        └─> QA                  Playwright 390/1440 px, estados, teclado, impeccable audit, design-critic
 
+refinamento de design já definido: usuário -> frontend-ux-ui direto
 conhecimento canônico = PRODUCT.md, DESIGN.md, DDRs, código, testes
 ```
 
@@ -40,10 +40,10 @@ Exemplo 1, portfólio pessoal:
 | Frame | light | uma pessoa, objetivo claro |
 | UX | light | poucas páginas, navegação simples |
 | Referências | required | identidade é o produto |
-| Divergir | required | 2-3 territórios bem distintos |
+| Divergir | required | 5-7 territórios, porque o trabalho é de identidade |
 | Direção e sistema | light | DESIGN.md curto, sem biblioteca de componentes |
 | Protótipo | skip | vai direto para o código |
-| Validar | light | design-critic uma vez |
+| Validar | light | sem protótipo, roda no primeiro build durante o QA (G5 checado lá) |
 | QA | required | responsivo, contraste, teclado |
 
 Exemplo 2, ferramenta interna de operações financeiras:
@@ -66,21 +66,14 @@ Próprias deste repo:
 - `design-director` (skill): triagem, plano, gates e roteamento. Não desenha.
 - `reference-research` (skill): coleta referências heterogêneas e devolve padrões, divergências, hipóteses e anti-referências em REFERENCES.md.
 - `design-critic` (agent): crítica read-only em contexto novo, com heurísticas de Nielsen, severidade 0-4, acessibilidade separada em automática e manual, sem nota geral.
-- `frontend-ux-ui` (agent): entrada e implementação. Manda trabalho novo para o director.
+- `frontend-ux-ui` (agent): implementação, rodando como subagent. Se receber trabalho novo ou direcional, para e devolve ao chamador recomendando o director.
 - `frontend-screen-design` (skill): objetivo, ação principal e estados de cada tela.
 
-De terceiros, por necessidade:
+De terceiros: o roteamento completo fica em [`skills/design-director/SKILL.md#routing`](../skills/design-director/SKILL.md#routing). Em resumo:
 
-| Necessidade | Quem resolve |
-|---|---|
-| Frame, escopo, corte de MVP | grill-me, agent product-strategist, `impeccable init` |
-| Discovery de UX | `impeccable shape`, frontend-screen-design |
-| Direção visual de produto ou geral | frontend-design (plugin do Claude Code; sem ele, impeccable) |
-| Direção visual só de marketing | design-taste-frontend |
-| Sistema, tipografia, layout, cor, crítica, audit, polish | impeccable |
-| Motion e detalhes de interação | emil-design-eng, animate (só depois da direção definida) |
-| Texto que o usuário final lê | humanizer |
-| Figma | figma-use, figma-generate-design, figma-generate-library, figma-code-connect |
+- Frame: grilling (invocável pelo modelo), ou sugerir que você rode /grill-me (/grill-with-docs se existir CONTEXT.md); agent product-strategist; `impeccable init`.
+- Direção visual: impeccable para produto (frontend-design só se a impeccable não estiver disponível); design-taste-frontend só para marketing.
+- Resto: impeccable para sistema, crítica e polish; emil-design-eng e animate para motion; humanizer para texto; skills do Figma para o Figma.
 
 ## Ferramentas
 
@@ -113,7 +106,8 @@ O padrão não pede instalação: busca na web, screenshots seus e Playwright ca
 
 ### Só no Claude Code vs. Codex
 
-- `frontend-design` é plugin do Claude Code. No Codex, o design-director cai para a impeccable na direção visual.
+- `frontend-design` é plugin do Claude Code e agora só serve de fallback, quando a impeccable não está disponível. A direção de produto é a impeccable nas duas ferramentas.
+- Sem subagents (Codex ou outra ferramenta), a crítica roda numa sessão nova, só com brief, tarefas, DESIGN.md e screenshots.
 - As skills do Figma vêm com o plugin do Claude. No Codex, elas seriam servidas pelo próprio MCP como recursos `skill://figma/...` (verificar: ainda não foi confirmado num Codex real).
 
 ## Artefatos
@@ -131,18 +125,17 @@ Avise antes de criar qualquer um. Arquivo só existe se tiver conhecimento real 
 
 ## Gates
 
-São oito (G0 a G7), cada um uma pergunta respondida com evidência proporcional ao risco. Qualquer gate pode reprovar e mandar o trabalho de volta a uma fase anterior. A tabela está em `skills/design-director/SKILL.md`.
+São oito (G0 a G7), cada um fechando uma fase (G0 depois da triagem, G1 depois do Frame, até G7 depois de Iterar) com uma pergunta respondida com evidência proporcional ao risco. Qualquer gate pode reprovar e mandar o trabalho de volta a uma fase anterior. Se o protótipo for pulado, a validação roda no primeiro build durante o QA e o G5 é checado lá. A tabela está em `skills/design-director/SKILL.md`.
 
 ## Anti-padrões
 
-- Rodar duas skills de direção na mesma superfície (frontend-design e design-taste-frontend juntas geram regras de fonte, cor e layout contraditórias).
+- Rodar duas skills de direção na mesma superfície (impeccable e design-taste-frontend juntas geram regras de fonte, cor e layout contraditórias).
 - Fazer UI antes de Frame e UX quando o risco não é trivial.
 - Reportar "UX score" ou qualquer métrica composta inventada.
 - Dizer "WCAG compliant" com base num scanner. Scanner acha uma parte dos problemas; o resto é manual.
 - Copiar uma referência só. Uma referência não prova padrão nenhum.
 - Tratar os defaults do shadcn/ui como design system. É código copiado que você precisa adaptar.
 - Deixar o modelo escolher o território vencedor. Quem converge é a pessoa.
-- Rodar Graphify num portfólio de 20 arquivos. O índice custa mais do que ler o código.
 
 ## Troubleshooting
 
