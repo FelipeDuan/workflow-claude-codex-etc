@@ -2,7 +2,7 @@
 
 Minha configuração pessoal para assistentes de IA: instruções globais (`AGENTS.md`), agentes, skills e commands, mais uma seleção de skills de terceiros com commit fixado. Um script instala tudo no Claude Code, no Codex e nas ferramentas que leem `~/.agents/skills` (Gemini CLI, OpenCode etc.).
 
-O conteúdo cobre engenharia de software, pesquisa acadêmica e produção de vídeo para YouTube. Está em português e foi escrito para o meu jeito de trabalhar; se for reaproveitar, leia o `AGENTS.md` antes.
+O conteúdo cobre engenharia de software, pesquisa acadêmica, produção de vídeo para YouTube e design de produto (UX/UI). Está em português e foi escrito para o meu jeito de trabalhar; se for reaproveitar, leia o `AGENTS.md` antes.
 
 ## O que é instalado e onde
 
@@ -124,7 +124,13 @@ Renomeações e exceções:
 
 ## Figma MCP (manual)
 
-O script não configura o Figma; ele só imprime as instruções. No Claude Code, a integração pode já estar ativa pela conta claude.ai: se `claude mcp list` mostrar `claude.ai Figma`, não há nada a fazer. Senão:
+O script não configura o Figma; ele só imprime as instruções. No Claude Code, o recomendado é o plugin oficial, que usa o mesmo servidor do conector do claude.ai e traz as skills do Figma:
+
+```sh
+claude plugin install figma@claude-plugins-official
+```
+
+Depois confira com `/mcp` que aparece um Figma só. Sem o plugin, ou no Codex:
 
 ```sh
 # Claude Code (depois autentique com /mcp dentro do Claude Code)
@@ -136,6 +142,8 @@ codex mcp login figma
 ```
 
 Documentação oficial: https://developers.figma.com/docs/figma-mcp-server/
+
+Limites por assento, duplicidade com o conector e o resto do workflow de design: [docs/design-workflow.md](docs/design-workflow.md).
 
 ## Como atualizar
 
@@ -178,15 +186,30 @@ AGENTS.md              instruções globais (vira CLAUDE.md no Claude)
 agents/                agentes próprios (.md no formato do Claude Code)
 skills/                skills próprias (uma pasta com SKILL.md cada)
 commands/              slash commands do Claude Code
+docs/                  documentação do workflow de design e investigações futuras
 third-party.lock       fontes de terceiros com commit fixado
 install.sh             instalador
+scripts/check.sh       validação estática
 scripts/md-convert.awk conversão de agentes e commands para o Codex
 scripts/harden.py      merge do --harden em settings.json e config.toml
 harden/                regras do Codex instaladas pelo --harden
 ```
+
+## Sincronizar com o upstream
+
+Este repo é um fork e pode divergir de propósito. Para ver o que mudou no original:
+
+```sh
+git fetch upstream
+git log --oneline HEAD..upstream/main    # commits que ainda não estão aqui
+git diff HEAD...upstream/main            # o que mudou lá desde o ponto em comum
+```
+
+Avalie commit por commit e traga só o que fizer sentido (`git cherry-pick <sha>`). Nada de merge às cegas.
 
 ## Problemas conhecidos
 
 - Só testado em macOS. O script foi escrito para funcionar também em Linux, mas isso não foi verificado.
 - Tirar um item do `third-party.lock` não o desinstala. A cópia continua no HOME até ser removida à mão.
 - Symlinks quebrados (por exemplo, depois de apagar uma skill do repo) são listados no resumo, mas não removidos.
+- Agentes convertidos para o Codex perdem `tools:` e `model:`. Lá, agentes que deveriam ser só leitura (security-reviewer, software-architect, design-critic) dependem apenas das instruções.
