@@ -14,7 +14,7 @@ O conteúdo cobre engenharia de software, pesquisa acadêmica e produção de v�
 | `commands/*.md` | `~/.claude/commands/` (symlink) | `~/.agents/skills/<comando>/SKILL.md` (gerado) |
 | Skills de terceiros | `~/.claude/skills/` (cópia) | `~/.agents/skills/` (cópia) |
 | Agentes de terceiros | `~/.claude/agents/` (cópia) | `~/.codex/agents/*.toml` (cópia ou conversão) |
-| Playwright MCP | `claude mcp add --scope user` | bloco `[mcp_servers.playwright]` em `~/.codex/config.toml` |
+| Playwright MCP | `claude mcp add --scope user` (pulado se o plugin `playwright@claude-plugins-official` estiver ativo) | bloco `[mcp_servers.playwright]` em `~/.codex/config.toml` |
 
 Detalhes:
 
@@ -109,7 +109,7 @@ Para `settings.json` e `config.toml`, o backup é uma cópia do arquivo anterior
 | [blader/humanizer](https://github.com/blader/humanizer) | `SKILL.md` e `agents/openai.yaml` | Revisar texto que outra pessoa vai ler |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | só `ponytail-review`, `ponytail-audit`, `ponytail-debt` | Achar excesso de engenharia e listar comentários `ponytail:` |
 | [sergebulaev/youtube-skills](https://github.com/sergebulaev/youtube-skills) | só `yt-audience-insights`, só o `SKILL.md` | Análise de comentários no modo "cole os comentários/CSV", sem `YOUTUBE_API_KEY` |
-| [Graphify](https://github.com/Graphify-Labs/graphify) | CLI `graphifyy` 0.9.67 via `uv` e a skill `graphify` | Opcional; os hooks do Graphify não são instalados |
+| [Graphify](https://github.com/Graphify-Labs/graphify) | CLI `graphifyy` 0.9.70 via `uv` e a skill `graphify` | Opcional; os hooks do Graphify não são instalados |
 | [Playwright MCP](https://www.npmjs.com/package/@playwright/mcp) | `@playwright/mcp@0.0.82` via `npx` | Controle de navegador pelo agente |
 
 Incorporado no `AGENTS.md` em vez de instalado: as diretrizes de [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) e a escada de simplicidade do ponytail (seção "Simplicidade e escopo").
@@ -169,6 +169,8 @@ skill humanizer  .  humanizer  claude,codex  include=SKILL.md,agents/openai.yaml
 
 Os campos são tipo, id do repo, caminho de origem, nome de destino (`-` usa o `name:` do frontmatter) e alvos. `include=` copia só os caminhos listados. Depois rode `./install.sh --dry-run` e `./install.sh`.
 
+Antes de instalar, rode `scripts/check.sh`: ele valida frontmatter de skills, agentes e commands, nomes duplicados, a conversão para o Codex, a sintaxe do `install.sh`, symlinks e os SHAs do `third-party.lock`.
+
 ## Estrutura
 
 ```
@@ -186,6 +188,5 @@ harden/                regras do Codex instaladas pelo --harden
 ## Problemas conhecidos
 
 - Só testado em macOS. O script foi escrito para funcionar também em Linux, mas isso não foi verificado.
-- Os commands convertidos têm descrição fraca no Codex, porque nenhum deles tem `description:` ainda.
 - Tirar um item do `third-party.lock` não o desinstala. A cópia continua no HOME até ser removida à mão.
 - Symlinks quebrados (por exemplo, depois de apagar uma skill do repo) são listados no resumo, mas não removidos.
