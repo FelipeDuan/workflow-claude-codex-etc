@@ -137,5 +137,5 @@ skill youtube  skills/yt-audience-insights  -  claude,codex  include=SKILL.md
 
 # ---------------------------------------------------------------- Graphify (CLI Python, opcional)
 # Instalado com `uv tool install graphifyy==<versão>` se o uv existir.
-# Versão = pyproject.toml do repo em v0.9.67 (commit 4c735618f3d56fd622c2049771584621c31ba9ff).
-uvtool graphifyy  0.9.67  https://github.com/Graphify-Labs/graphify
+# Versão = pyproject.toml do repo em v0.9.70 (commit 4df8d4dcfadee5555203eaba585cc7dec1dee2fb).
+uvtool graphifyy  0.9.70  https://github.com/Graphify-Labs/graphify

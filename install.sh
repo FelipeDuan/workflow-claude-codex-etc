@@ -541,7 +541,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ Graphify (opcional)
-# `graphify install` (v0.9.67, graphify/install.py) faz, no escopo global:
+# `graphify install` (v0.9.70, graphify/install.py) faz, no escopo global:
 #   --platform claude: copia SKILL.md + references/ + .graphify_version para
 #       ~/.claude/skills/graphify/ (ou $CLAUDE_CONFIG_DIR/skills/graphify/) E
 #       acrescenta um bloco "# graphify" em ~/.claude/CLAUDE.md.
@@ -651,6 +651,27 @@ append_codex_playwright() { # $1 = config.toml, $2 = pacote npx
     fi
 }
 
+# O plugin oficial playwright@claude-plugins-official já expõe o Playwright MCP
+# (aparece como plugin:playwright:playwright); `claude mcp get playwright` não o vê.
+# Lê enabledPlugins do settings.json (python3 se existir, senão grep conservador).
+claude_playwright_plugin_enabled() {
+    local s="$CLAUDE_DIR/settings.json"
+    [ -f "$s" ] || return 1
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$s" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        plugins = json.load(f).get("enabledPlugins") or {}
+except Exception:
+    sys.exit(1)
+sys.exit(0 if plugins.get("playwright@claude-plugins-official") is True else 1)
+PY
+    else
+        grep -Eq '"playwright@claude-plugins-official"[[:space:]]*:[[:space:]]*true' "$s"
+    fi
+}
+
 setup_mcp() {
     step "MCP"
     local pw="@playwright/mcp@$PLAYWRIGHT_MCP_VERSION" cfg="$CODEX_DIR/config.toml"
@@ -660,6 +681,8 @@ setup_mcp() {
         if want_target claude; then
             if ! command -v claude >/dev/null 2>&1; then
                 warn "claude CLI não encontrado; Playwright MCP do Claude pulado"
+            elif claude_playwright_plugin_enabled; then
+                ok "claude mcp playwright (via plugin playwright@claude-plugins-official; não registrado de novo)"
             # `claude mcp get` cria ~/.claude.json se ele não existir; no dry-run,
             # sem esse arquivo o servidor com certeza não está configurado.
             elif { [ "$DRY_RUN" = 0 ] || [ -f "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" ]; } \
