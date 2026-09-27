@@ -82,12 +82,14 @@ if command -v python3 >/dev/null 2>&1 && python3 -c 'import tomllib' 2>/dev/null
     done
     result "conversão para o Codex (TOML validado com tomllib)"
 else
-    result "conversão para o Codex (sem tomllib; TOML não validado)"
+    result "conversão para o Codex (awk)"
+    printf 'SKIP  validação do TOML (python3 sem tomllib)\n'
 fi
 
-# 6. sintaxe do install.sh
-msg="$(bash -n install.sh 2>&1)" || err "$msg"
-result "bash -n install.sh"
+# 6. sintaxe do install.sh; /bin/bash é o bash 3.2 que roda no macOS
+sh_bin=bash; [ -x /bin/bash ] && sh_bin=/bin/bash
+msg="$("$sh_bin" -n install.sh 2>&1)" || err "$msg"
+result "$sh_bin -n install.sh"
 
 # 7. symlinks quebrados no repo
 broken="$(find . -path ./.git -prune -o -type l ! -exec test -e {} \; -print)"

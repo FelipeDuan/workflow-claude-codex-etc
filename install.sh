@@ -654,6 +654,7 @@ append_codex_playwright() { # $1 = config.toml, $2 = pacote npx
 # O plugin oficial playwright@claude-plugins-official já expõe o Playwright MCP
 # (aparece como plugin:playwright:playwright); `claude mcp get playwright` não o vê.
 # Lê enabledPlugins do settings.json (python3 se existir, senão grep conservador).
+# Só o settings.json de escopo user é lido; settings de projeto/local não são vistos.
 claude_playwright_plugin_enabled() {
     local s="$CLAUDE_DIR/settings.json"
     [ -f "$s" ] || return 1
@@ -663,9 +664,10 @@ import json, sys
 try:
     with open(sys.argv[1]) as f:
         plugins = json.load(f).get("enabledPlugins") or {}
+    ok = isinstance(plugins, dict) and plugins.get("playwright@claude-plugins-official") is True
 except Exception:
     sys.exit(1)
-sys.exit(0 if plugins.get("playwright@claude-plugins-official") is True else 1)
+sys.exit(0 if ok else 1)
 PY
     else
         grep -Eq '"playwright@claude-plugins-official"[[:space:]]*:[[:space:]]*true' "$s"
@@ -683,6 +685,10 @@ setup_mcp() {
                 warn "claude CLI não encontrado; Playwright MCP do Claude pulado"
             elif claude_playwright_plugin_enabled; then
                 ok "claude mcp playwright (via plugin playwright@claude-plugins-official; não registrado de novo)"
+                if [ -f "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" ] \
+                    && claude mcp get playwright </dev/null >/dev/null 2>&1; then
+                    warn "Playwright MCP duplicado: plugin ativo e servidor manual em escopo user; remova com: claude mcp remove --scope user playwright"
+                fi
             # `claude mcp get` cria ~/.claude.json se ele não existir; no dry-run,
             # sem esse arquivo o servidor com certeza não está configurado.
             elif { [ "$DRY_RUN" = 0 ] || [ -f "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" ]; } \
@@ -712,9 +718,10 @@ setup_mcp() {
     say ""
     say "  Figma MCP (manual, não automatizado):"
     say "    Servidor remoto oficial: $FIGMA_MCP_URL (docs: $FIGMA_MCP_DOCS)"
-    say "    Claude Code: se já aparece 'claude.ai Figma' em 'claude mcp list', não precisa fazer nada."
-    say "                 Senão: claude mcp add --scope user --transport http figma $FIGMA_MCP_URL"
-    say "                 e autentique com /mcp dentro do Claude Code."
+    say "    Claude Code: recomendado: claude plugin install figma@claude-plugins-official"
+    say "                 (mesmo servidor do conector do claude.ai, traz as skills do Figma e tem precedência)."
+    say "                 Alternativa manual: claude mcp add --scope user --transport http figma $FIGMA_MCP_URL"
+    say "                 Em ambos, autentique com /mcp dentro do Claude Code."
     say "    Codex:       codex mcp add figma --url $FIGMA_MCP_URL  e depois  codex mcp login figma"
 }
 
