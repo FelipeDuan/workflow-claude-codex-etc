@@ -15,7 +15,7 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 | Playwright MCP | plugin (Claude) + config.toml (Codex) | INSTALADO MAS NÃO VALIDADO | conectado nos dois | — |
 | OpenCode | — | PENDENTE | não instalado | verificar canal oficial e versão |
 | Paseo | — | PENDENTE | não instalado | verificar procedência e instalação oficial |
-| AI-Memory | — | PENDENTE | não instalado | só se Claude-Mem não cobrir a necessidade |
+| AI-Memory | 3.2.0 (fixada) | INSTALADO MAS NÃO VALIDADO (Claude ok, Codex pendente) | binário em `~/.local/lib/ai-memory`; LaunchAgent `com.github.akitaonrails.ai-memory` em 127.0.0.1:49374 com bearer token; hooks Claude+Codex em **allowlist** (só repos com `.ai-memory.toml`), `--project-strategy repo-root`; MCP Claude via `mcp-bridge` conectado | Felipe aprovar hooks no Codex (`/hooks`); testar Etapa 2 no Codex |
 | Antigravity / Gemini | — | EXPERIMENTAL (opcional) | não instalado | fora do caminho crítico |
 | DeepSeek Harness | — | PENDENTE | não instalado | só com justificativa |
 | Handoff entre harnesses | — | PENDENTE | — | teste Claude → Codex |
@@ -46,3 +46,20 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 - Próximo passo: verificar canais oficiais de OpenCode/Paseo/AI-Memory e pedir autorização de instalação
 
 > Nunca registrar chaves/tokens/credenciais neste arquivo.
+
+## Teste T2 — handoff (laboratório `~/Workspace/tools/laboratorio`)
+
+**Etapa 1, Claude (`claude -p`, Sonnet), 22/10/2026: CONFIRMADO**
+- Commit `eeeb803`. `python3 -m unittest` passou (4 testes). Nenhuma dependência externa.
+- AI-Memory: 31 observações, 2 sessões, 1 página no escopo `laboratorio/laboratorio`.
+- Handoffs abertos: **2**. Um foi registrado de forma explícita pelo agente via MCP (atribuído como `other`) e o outro foi gerado sozinho pelo hook de fim de sessão (`claude-code`). O próximo agente assume um deles e o outro fica pendurado. Ainda falta definir a política: só o automático, ou só o explícito.
+- Claude-Mem capturou a mesma sessão (1 observação, 1 sessão). **A captura duplicada foi confirmada.**
+
+**Etapa 2, Codex: PENDENTE**
+- Os hooks do Codex estão "untrusted" até o Felipe rodar `/hooks` no Codex.
+- O MCP do Codex usa `bearer_token_env_var` (`AI_MEMORY_AUTH_TOKEN`). Falta testar se `ai-memory run codex` injeta essa variável sozinho.
+
+## Rollback do AI-Memory
+- `ai-memory uninstall --apply`: remove hooks, MCP, skills e LaunchAgent instalados por ele.
+- Backups anteriores à instalação: `~/.ai-os-backup/<timestamp>-pre-ai-memory/`, além dos backups com timestamp que o próprio ai-memory grava ao lado de cada arquivo alterado.
+- Os dados ficam em `~/Library/Application Support/ai-memory`. Remover só com autorização.
