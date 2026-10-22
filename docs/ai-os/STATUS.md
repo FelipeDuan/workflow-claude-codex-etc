@@ -104,7 +104,7 @@ Trabalhar no worktree `~/Workspace/tools/workflow-ai-ai-os`, branch `feat/ai-os-
 2. **CONCLUÍDO NA CONFIG LOCAL: Política de permissões do OpenCode 2.** O agente `build` vem com `*`. Ler a doc oficial de permissions da v2 (https://opencode.ai/v2/docs). Configurar `bash` e edição fora do projeto como "ask"; manter o MCP ai-memory. Arquivo: `~/.config/opencode/opencode.json` (fazer backup antes).
 3. **CONCLUÍDO NO REPO (instalação pendente): Hook `StopFailure` no Claude:** quando `error` for `rate_limit`, `overloaded` ou `billing_error`, rodar `ai-memory finalize-session --agent claude-code`, que gera handoff com a última mensagem. Versionar no repo (o install.sh aplica) e testar simulando o payload pelo stdin.
 4. **Mod "quota-guard" no Claude** (skill plugin-authoring): em `session.measure`, quando `rateLimits` `five_hour` ≥ 85%, status line + toast com `resetsAt` e um pedido para o agente escrever a nota de estado. Decidir onde o mod mora no repo e como o install.sh o instala.
-5. **Comparar provedores econômicos para o OpenCode** (DeepSeek, GLM/Z.ai, Kimi/Moonshot, Qwen/Alibaba, NVIDIA): preço por token, plano de assinatura de coding, política de dados/treino, retenção, região. Fonte oficial de cada um. Sem cadastrar nada sem o Felipe.
+5. **CONCLUÍDO COM RESSALVAS: Comparar provedores econômicos para o OpenCode.** Pesquisa oficial de 22/10/2026 em [PROVEDORES.md](PROVEDORES.md): DeepSeek, GLM/Z.ai, Kimi/Moonshot, Model Studio internacional e NVIDIA, com preços, modelos/IDs, coding, dados e integração v2. Lacunas marcadas como "não confirmado", inclusive catálogo nominal da v2 e preços que as páginas não expuseram. Nenhum cadastro, chave ou contratação.
 6. **Merge de `feat/ai-os-v2` → `feat/design-workflow-v1`** depois de 1–3, e reaplicar `install.sh` com dry-run antes. Só com aprovação do Felipe.
 7. Depois: Paseo (fase de orquestração e failover automático) e SGG.
 
@@ -127,3 +127,6 @@ Validação:
 - `opencode` não está no PATH desta sessão. Pelo caminho absoluto, `--version` e `--help` foram bloqueados ao abrir o log fora do sandbox. O `package.json` local confirma 2.0.32. Não foi possível confirmar a configuração carregada pelo runtime nem observar os prompts de permissão; o formato foi confirmado pela documentação oficial v2.
 
 Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, `tests/test_stop_failure.py`, este STATUS e a config local do OpenCode (com backup). Nenhum commit, instalação real ou alteração na pasta `~/Workspace/tools/workflow-ai`. Passos 4 em diante não executados. Próximo passo: o orquestrador revisar o diff e os testes; aplicação dos links/hook fica para a instalação aprovada após o merge do passo 6.
+
+## Gotcha: `ai-memory run` retoma por padrão
+`ai-memory run codex exec ...` vira `codex exec resume <sessão>` quando o workstream já tem uma sessão do Codex, e as flags como `--sandbox` são rejeitadas. Para tarefa nova, usar `ai-memory run --fresh codex exec ...`. Para continuar o trabalho, `ai-memory run codex`.
