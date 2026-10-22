@@ -1,0 +1,3 @@
+# Opt-in de captura do ai-memory (modo allowlist). Sem este arquivo, nada é capturado.
+workspace = "pessoal"
+project = "workflow-ai"
