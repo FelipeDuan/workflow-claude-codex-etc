@@ -96,3 +96,16 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
   2. Um `opencode run` disparado junto com `service restart` trava. É preciso esperar o serviço subir.
   3. O agente `build` do OpenCode vem com a permissão `*` liberada.
   4. O OpenCode não lê o AGENTS.md global (`~/.config/opencode/AGENTS.md` não existe).
+
+## PRÓXIMOS PASSOS (aprovados pelo Felipe em 22/10/2026). Retomar daqui
+Trabalhar no worktree `~/Workspace/tools/workflow-ai-ai-os`, branch `feat/ai-os-v2`. A pasta `~/Workspace/tools/workflow-ai` é a config ao vivo (branch de design): NÃO fazer checkout nela antes do merge. A implementação vai para um agente; o orquestrador verifica.
+
+1. **install.sh ganha o alvo `opencode`**, no mesmo padrão dos alvos claude/codex. Symlink `~/.config/opencode/AGENTS.md` → `AGENTS.md` do repo. As skills já são descobertas via `~/.claude/skills` e `~/.agents/skills`, então não duplicar. Testar com `install.sh --dry-run` e rodar `scripts/check.sh`.
+2. **Política de permissões do OpenCode 2.** O agente `build` vem com `*`. Ler a doc oficial de permissions da v2 (https://opencode.ai/v2/docs). Configurar `bash` e edição fora do projeto como "ask"; manter o MCP ai-memory. Arquivo: `~/.config/opencode/opencode.json` (fazer backup antes).
+3. **Hook `StopFailure` no Claude:** quando `error` for `rate_limit`, `overloaded` ou `billing_error`, rodar `ai-memory finalize-session --agent claude-code`, que gera handoff com a última mensagem. Versionar no repo (o install.sh aplica) e testar simulando o payload pelo stdin.
+4. **Mod "quota-guard" no Claude** (skill plugin-authoring): em `session.measure`, quando `rateLimits` `five_hour` ≥ 85%, status line + toast com `resetsAt` e um pedido para o agente escrever a nota de estado. Decidir onde o mod mora no repo e como o install.sh o instala.
+5. **Comparar provedores econômicos para o OpenCode** (DeepSeek, GLM/Z.ai, Kimi/Moonshot, Qwen/Alibaba, NVIDIA): preço por token, plano de assinatura de coding, política de dados/treino, retenção, região. Fonte oficial de cada um. Sem cadastrar nada sem o Felipe.
+6. **Merge de `feat/ai-os-v2` → `feat/design-workflow-v1`** depois de 1–3, e reaplicar `install.sh` com dry-run antes. Só com aprovação do Felipe.
+7. Depois: Paseo (fase de orquestração e failover automático) e SGG.
+
+Já validado (não refazer): ai-memory 3.2.0, OpenCode 2.0.32, handoff Claude→Codex→OpenCode→Claude, skill memory-backfill, Claude-Mem excluído de laboratorio e workflow-ai.
