@@ -13,12 +13,12 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 | Figma MCP (Claude) | plugin oficial | INSTALADO MAS NÃO VALIDADO | autenticado pelo Felipe em 22/10; ferramentas do MCP disponíveis na sessão | teste de leitura num arquivo real |
 | Figma MCP (Codex) | — | PENDENTE | não consta em `~/.codex/config.toml` | decidir se precisa |
 | Playwright MCP | plugin (Claude) + config.toml (Codex) | INSTALADO MAS NÃO VALIDADO | conectado nos dois | — |
-| OpenCode | — | PENDENTE | não instalado | verificar canal oficial e versão |
+| OpenCode | 2.0.32 (fixada; npm com integridade sha512, em `~/.opencode`) | CONFIRMADO FUNCIONAL (laboratório) | serviço movido para a porta 49375 (conflito com o ai-memory em 49374); plugin + MCP do ai-memory; descobre as skills de `~/.claude/skills` e `~/.agents/skills`; modelos `opencode/*-free` sem login | política de permissões; AGENTS.md global; provedor econômico com login |
 | Paseo | — | PENDENTE | não instalado | verificar procedência e instalação oficial |
 | AI-Memory | 3.2.0 (fixada) | EXPERIMENTAL: handoff Claude→Codex ok, Codex→Claude parcial | binário em `~/.local/lib/ai-memory`; LaunchAgent `com.github.akitaonrails.ai-memory` em 127.0.0.1:49374 com bearer token; hooks Claude+Codex em **allowlist** (só repos com `.ai-memory.toml`), `--project-strategy repo-root`; MCP Claude via `mcp-bridge` conectado | resolver lacunas do T2 |
 | Antigravity / Gemini | — | EXPERIMENTAL (opcional) | não instalado | fora do caminho crítico |
 | DeepSeek Harness | — | PENDENTE | não instalado | só com justificativa |
-| Handoff entre harnesses | ai-memory 3.2.0 | EXPERIMENTAL | ver T2 abaixo | handoff de volta |
+| Handoff entre harnesses | ai-memory 3.2.0 | CONFIRMADO FUNCIONAL (laboratório) | Claude → Codex → OpenCode → Claude, ver T2 | testar parada abrupta |
 | Failover automático | — | PENDENTE | — | só depois do handoff manual |
 
 ## Git do workflow
@@ -86,3 +86,13 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 - Na segunda pergunta, feita só ao ai-memory (Haiku), a resposta veio da página gravada. O Claude-Mem não foi consultado.
 - Decisão do Felipe: a skill grava sem pedir confirmação. Os limites são 5 páginas por execução, gravar só fatos conferidos e registrar a proveniência.
 - Aposentadoria do Claude-Mem: em fases. Cada projeto que entra no ai-memory sai do Claude-Mem; em 3–4 semanas avaliamos a frequência do backfill; o plugin só é removido no fim.
+
+## T2 completo — Claude → Codex → OpenCode → Claude, 22/10/2026: CONFIRMADO
+- Ligado `capture_assistant` (servidor + hooks Claude/Codex/OpenCode). A última mensagem de cada agente agora vai no handoff automático.
+- Etapa 3, OpenCode 2.0.32 com `opencode/deepseek-v4.1-flash-free`: resumiu as etapas 1 e 2 e a decisão vigente só pelo ai-memory. Entregou `--max` com argparse, 11 testes e o commit `a050054`, em 1:15.
+- Retorno ao Claude (Haiku, só ai-memory): identificou o OpenCode como último agente, o que ele entregou e o próximo passo. Também avisou que havia uma sessão posterior que ele não leu.
+- Gotchas:
+  1. O OpenCode 2 usa por padrão a mesma porta do ai-memory, resolvido com `opencode service set port 49375`.
+  2. Um `opencode run` disparado junto com `service restart` trava. É preciso esperar o serviço subir.
+  3. O agente `build` do OpenCode vem com a permissão `*` liberada.
+  4. O OpenCode não lê o AGENTS.md global (`~/.config/opencode/AGENTS.md` não existe).
