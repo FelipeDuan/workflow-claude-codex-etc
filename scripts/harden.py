@@ -7,6 +7,7 @@ a biblioteca padrão (json; tomllib exige Python >= 3.11).
 Uso:
   harden.py claude-settings <settings.json> --check|--apply
   harden.py codex-env       <config.toml>   --check|--apply
+  harden.py claude-stop-failure <settings.json> --check|--apply
 
 Saída (stdout), uma linha por item:
   CHANGE <descrição>   algo seria/foi acrescentado
@@ -111,6 +112,39 @@ def claude_settings(path, apply):
     return CHANGED
 
 
+def claude_stop_failure(path, apply):
+    import shlex
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        data = {}
+    except (OSError, ValueError):
+        say("WARN", f"{path}: JSON inválido; arquivo intocado")
+        return UNSAFE
+    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+        say("WARN", f"{path}: hooks não é objeto; arquivo intocado")
+        return UNSAFE
+    hooks = data.get("hooks", {})
+    entries = hooks.get("StopFailure", [])
+    if not isinstance(entries, list):
+        say("WARN", f"{path}: StopFailure não é lista; arquivo intocado")
+        return UNSAFE
+    script = os.path.join(os.path.dirname(os.path.abspath(path)), "hooks", "stop-failure.py")
+    entry = {"matcher": "rate_limit|overloaded|billing_error", "hooks": [
+        {"type": "command", "command": "python3 " + shlex.quote(script), "timeout": 25}
+    ]}
+    if entry in entries:
+        return NOTHING
+    say("CHANGE", f"hooks.StopFailure em {path}")
+    if apply:
+        hooks["StopFailure"] = entries + [entry]
+        data["hooks"] = hooks
+        write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return CHANGED
+
+
 def strip_added(data, had_policy):
     """Remove de uma cópia o que o append acrescenta, para comparar com o original."""
     import copy
@@ -183,10 +217,11 @@ def codex_env(path, apply):
 
 
 def main(argv):
-    if len(argv) != 4 or argv[1] not in ("claude-settings", "codex-env") or argv[3] not in ("--check", "--apply"):
+    if len(argv) != 4 or argv[1] not in ("claude-settings", "codex-env", "claude-stop-failure") or argv[3] not in ("--check", "--apply"):
         print(__doc__, file=sys.stderr)
         return 64
-    handler = claude_settings if argv[1] == "claude-settings" else codex_env
+    handler = {"claude-settings": claude_settings, "codex-env": codex_env,
+               "claude-stop-failure": claude_stop_failure}[argv[1]]
     return handler(argv[2], argv[3] == "--apply")
 
 

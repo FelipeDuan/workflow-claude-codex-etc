@@ -11,9 +11,9 @@
 #
 # Nunca toca em: ~/.codex/auth.json, históricos, sessões, ~/.claude/plugins.
 # MCP: `claude mcp add --scope user` grava em ~/.claude.json; no Codex, append
-# em ~/.codex/config.toml. ~/.claude/settings.json e ~/.codex/config.toml só
-# recebem mais alterações com --harden (opt-in), por merge não destrutivo com
-# backup (scripts/harden.py).
+# em ~/.codex/config.toml. O settings.json do Claude recebe o hook StopFailure.
+# --harden acrescenta configurações por merge não destrutivo com backup
+# (scripts/harden.py) no settings.json do Claude e config.toml do Codex.
 
 set -euo pipefail
 
@@ -28,6 +28,7 @@ FIGMA_MCP_DOCS="https://developers.figma.com/docs/figma-mcp-server/"
 : "${HOME:?HOME não está definido}"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 AGENTS_SKILLS_DIR="$HOME/.agents/skills"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/workflow-ai"
 VENDOR_DIR="$DATA_DIR/vendor"
@@ -40,6 +41,7 @@ MCP=1
 HARDEN=0
 ONLY_CLAUDE=0
 ONLY_CODEX=0
+ONLY_OPENCODE=0
 
 N_OK=0
 N_CHANGED=0
@@ -64,7 +66,7 @@ skills/agentes de terceiros fixados em third-party.lock (via cópia).
 
 Opções:
   --dry-run          Mostra o que seria feito, sem alterar nada.
-  --only ALVO        Instala só para "claude" ou "codex". Pode repetir.
+  --only ALVO        Instala só para "claude", "codex" ou "opencode". Pode repetir.
                      codex inclui ~/.agents/skills (lido também por Gemini CLI,
                      OpenCode etc.).
   --update           Baixa de novo as fontes de terceiros (no SHA fixado),
@@ -79,7 +81,7 @@ Opções:
   -v, --verbose      Lista também o que já estava correto.
   -h, --help         Mostra esta ajuda.
 
-Variáveis respeitadas: CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_DATA_HOME.
+Variáveis respeitadas: CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_DATA_HOME, XDG_CONFIG_HOME.
 Backups: ~/.workflow-ai-backup/<timestamp>/
 EOF
 }
@@ -97,7 +99,7 @@ while [ $# -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         --only|--only=*)
             if [ "$1" = "--only" ]; then
-                [ $# -ge 2 ] || die "--only precisa de um valor (claude|codex)"
+                [ $# -ge 2 ] || die "--only precisa de um valor (claude|codex|opencode)"
                 target="$2"; shift
             else
                 target="${1#--only=}"
@@ -105,7 +107,8 @@ while [ $# -gt 0 ]; do
             case "$target" in
                 claude) ONLY_CLAUDE=1 ;;
                 codex) ONLY_CODEX=1 ;;
-                *) die "--only aceita claude ou codex (recebido: $target)" ;;
+                opencode) ONLY_OPENCODE=1 ;;
+                *) die "--only aceita claude, codex ou opencode (recebido: $target)" ;;
             esac
             ;;
         *) usage >&2; die "opção desconhecida: $1" ;;
@@ -113,16 +116,17 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$ONLY_CLAUDE" = 0 ] && [ "$ONLY_CODEX" = 0 ]; then
-    DO_CLAUDE=1; DO_CODEX=1
+if [ "$ONLY_CLAUDE" = 0 ] && [ "$ONLY_CODEX" = 0 ] && [ "$ONLY_OPENCODE" = 0 ]; then
+    DO_CLAUDE=1; DO_CODEX=1; DO_OPENCODE=1
 else
-    DO_CLAUDE=$ONLY_CLAUDE; DO_CODEX=$ONLY_CODEX
+    DO_CLAUDE=$ONLY_CLAUDE; DO_CODEX=$ONLY_CODEX; DO_OPENCODE=$ONLY_OPENCODE
 fi
 
-want_target() { # $1 = claude|codex
+want_target() { # $1 = claude|codex|opencode
     case "$1" in
         claude) [ "$DO_CLAUDE" = 1 ] ;;
         codex) [ "$DO_CODEX" = 1 ] ;;
+        opencode) [ "$DO_OPENCODE" = 1 ] ;;
         *) return 1 ;;
     esac
 }
@@ -147,8 +151,8 @@ PLAN="$STAGE/plan.tsv"
 # ~/.claude/skills como symlink para o repo): mover "o antigo" para backup
 # moveria arquivos do repo.
 physical_dir() { (cd "$1" 2>/dev/null && pwd -P); }
-for d in "$CLAUDE_DIR" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/commands" \
-         "$CODEX_DIR" "$CODEX_DIR/agents" "$AGENTS_SKILLS_DIR"; do
+for d in "$CLAUDE_DIR" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" \
+         "$CODEX_DIR" "$CODEX_DIR/agents" "$AGENTS_SKILLS_DIR" "$OPENCODE_DIR"; do
     [ -d "$d" ] || continue
     p="$(physical_dir "$d")"
     case "$p/" in
@@ -244,8 +248,12 @@ plan() { local IFS=$'\t'; printf '%s\n' "$*" >> "$PLAN"; }
 
 plan_own_content() {
     local f d name
+    if want_target opencode; then
+        plan link "$REPO_DIR/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"
+    fi
     if want_target claude; then
         plan link "$REPO_DIR/AGENTS.md" "$CLAUDE_DIR/CLAUDE.md"
+        plan link "$REPO_DIR/scripts/stop-failure.py" "$CLAUDE_DIR/hooks/stop-failure.py"
         for f in "$REPO_DIR"/agents/*.md; do
             [ -f "$f" ] || continue
             plan link "$f" "$CLAUDE_DIR/agents/$(basename "$f")"
@@ -794,7 +802,7 @@ report() {
         [ -d "$d" ] || continue
         find "$d" -mindepth 1 -maxdepth 1 -type l ! -exec test -e {} \; -print >> "$broken"
     done
-    for d in "$CLAUDE_DIR/CLAUDE.md" "$CODEX_DIR/AGENTS.md"; do
+    for d in "$CLAUDE_DIR/CLAUDE.md" "$CODEX_DIR/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"; do
         if [ -L "$d" ] && [ ! -e "$d" ]; then printf '%s\n' "$d" >> "$broken"; fi
     done
     if [ -s "$broken" ]; then
@@ -810,7 +818,7 @@ report() {
 # ------------------------------------------------------------------ main
 
 say "workflow-ai: repo=$REPO_DIR"
-say "  alvos: $( [ "$DO_CLAUDE" = 1 ] && printf 'claude ')$( [ "$DO_CODEX" = 1 ] && printf 'codex')"
+say "  alvos: $( [ "$DO_CLAUDE" = 1 ] && printf 'claude ')$( [ "$DO_CODEX" = 1 ] && printf 'codex ')$( [ "$DO_OPENCODE" = 1 ] && printf 'opencode')"
 [ "$DRY_RUN" = 1 ] && say "  modo: dry-run"
 
 step "Conteúdo próprio (symlinks para o repo; toml/skills do Codex gerados)"
@@ -830,6 +838,13 @@ apply_plan
 if [ "$THIRD_PARTY" = 1 ]; then
     install_engines
     install_graphify
+fi
+if want_target claude; then
+    if command -v python3 >/dev/null 2>&1; then
+        harden_merge claude-stop-failure "$CLAUDE_DIR/settings.json"
+    else
+        warn "python3 ausente; hook StopFailure não configurado"
+    fi
 fi
 [ "$MCP" = 1 ] && setup_mcp
 [ "$HARDEN" = 1 ] && setup_harden
