@@ -79,3 +79,10 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 - `ai-memory uninstall --apply`: remove hooks, MCP, skills e LaunchAgent instalados por ele.
 - Backups anteriores à instalação: `~/.ai-os-backup/<timestamp>-pre-ai-memory/`, além dos backups com timestamp que o próprio ai-memory grava ao lado de cada arquivo alterado.
 - Os dados ficam em `~/Library/Application Support/ai-memory`. Remover só com autorização.
+
+## Skill `memory-backfill` (Claude-Mem → AI-Memory sob demanda), 22/10/2026: CONFIRMADO
+- Projeto: workflow-ai, que passou a ser capturado pelo ai-memory (`.ai-memory.toml`, commit 4156752) e saiu do Claude-Mem (`CLAUDE_MEM_EXCLUDED_PROJECTS`).
+- Pergunta: "por que o design-director roda na conversa principal?". O ai-memory não tinha a resposta. O Claude-Mem tinha na observação #405. O fato foi conferido em `skills/design-director/SKILL.md:10,66,69,95`, `agents/frontend-ux-ui.md:22`, `docs/design-workflow.md:11` e no commit `eb1e8db`. Uma página foi gravada: `decisions/design-director-main-conversation.md`.
+- Na segunda pergunta, feita só ao ai-memory (Haiku), a resposta veio da página gravada. O Claude-Mem não foi consultado.
+- Decisão do Felipe: a skill grava sem pedir confirmação. Os limites são 5 páginas por execução, gravar só fatos conferidos e registrar a proveniência.
+- Aposentadoria do Claude-Mem: em fases. Cada projeto que entra no ai-memory sai do Claude-Mem; em 3–4 semanas avaliamos a frequência do backfill; o plugin só é removido no fim.
