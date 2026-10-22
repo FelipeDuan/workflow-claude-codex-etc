@@ -15,9 +15,10 @@ claude-mem is being phased out. Knowledge moves into ai-memory only when it is n
 
 ## Procedure
 
-1. **Project name.** claude-mem uses the repo folder basename. In a git worktree, use the main checkout's basename (`basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"`), not the worktree folder.
+1. **Project name.** claude-mem stores the basename of the folder where the session started. Take the main checkout's basename (`basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"`) and the current folder's basename (`basename "$PWD"`).
+   If they differ (git worktree), run every search with each name and treat both as the same project.
 2. **Search → filter → fetch** (per `mem-search`), always with `project=<name>`:
-   - `search(query=..., project=<name>, limit=20)`; optionally `obs_type="decision,bugfix,discovery"`.
+   - `search(query=..., project=<name>, limit=20)`; optionally `obs_type="decision,bugfix,discovery,feature,change"`.
    - `timeline(anchor=<id>, project=<name>)` only when a title is ambiguous.
    - `get_observations(ids=[...], project=<name>)` only for the filtered IDs.
    - Never search without `project`, never search other projects, never copy cross-project knowledge.
