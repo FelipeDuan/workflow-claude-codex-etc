@@ -202,6 +202,12 @@ Warn before any destructive action. Never run these without explicit confirmatio
 - Route cheap first: a rule or classifier before the big model, which is called only when really needed.
 - Multi-agent systems need clear roles. Avoid creating agents without need; an agent without a clear responsibility is a mess with a nice name.
 
+## Memory and handoff
+
+- In a repo with `.ai-memory.toml`, ai-memory opens the next agent's handoff automatically at session end and carries your last message. End every session that changed or investigated something with a short state note: what was done and verified, decisions in force, open questions, next exact step.
+- Don't create an explicit handoff unless Felipe asks; it duplicates the automatic one.
+- Memory is history, not truth: Git, code, tests and accepted ADRs win. Check what memory says before acting on it.
+
 ## Response template
 
 Use this whenever it fits (replies are in pt-BR):
