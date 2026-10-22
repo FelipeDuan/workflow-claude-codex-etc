@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity candidato somente se instalado/autenticado e compatível; não é API paga; DeepSeek Harness opcional.",
+  "classes": {
+    "high": [
+      {
+        "harness": "claude",
+        "perfil": "frontier-arquitetura"
+      },
+      {
+        "harness": "codex",
+        "perfil": "frontier-implementacao"
+      },
+      {
+        "harness": "antigravity",
+        "perfil": "frontier-independent-review",
+        "condicao": "Google AI Pro, Argon realmente disponivel e integracao suportada"
+      }
+    ],
+    "medium": [
+      {
+        "harness": "codex",
+        "perfil": "implementacao"
+      },
+      {
+        "harness": "claude",
+        "perfil": "frontier-arquitetura"
+      },
+      {
+        "harness": "antigravity",
+        "perfil": "second-opinion",
+        "condicao": "modelo confirmado, privacy ok"
+      }
+    ],
+    "low": [
+      {
+        "harness": "opencode",
+        "perfil": "economico-pessoal"
+      },
+      {
+        "harness": "codex",
+        "perfil": "implementacao"
+      }
+    ]
+  },
+  "acesso_dados": {
+    "pessoal-publico": [
+      "claude",
+      "codex",
+      "opencode",
+      "antigravity"
+    ],
+    "pessoal-restrito": [
+      "claude",
+      "codex",
+      "antigravity"
+    ],
+    "institucional": []
+  },
+  "guardrails": {
+    "quota_desconhecida": "pedir verificacao real",
+    "limite_fallback": 2,
+    "executar_automaticamente": false,
+    "revisor_independente_para_alto_risco": true,
+    "nao_equivaler_assinatura_e_api": true,
+    "proibir_autoinstalacao_plugins_terceiros": true
+  }
+}
