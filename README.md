@@ -45,7 +45,7 @@ Sem `tomllib`, o `--harden` no Claude funciona, mas a parte do Codex é pulada, 
 ## Instalação rápida
 
 ```sh
-git clone git@github.com:whosbea/workflow-claude-codex-etc.git
+git clone git@github.com:FelipeDuan/workflow-claude-codex-etc.git
 cd workflow-claude-codex-etc
 ./install.sh --dry-run    # mostra o plano, não altera nada
 ./install.sh
