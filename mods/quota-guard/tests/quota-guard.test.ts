@@ -33,12 +33,22 @@ const measure = (rateLimits: SessionRateLimit[]) => ({
   changed: ['rateLimits' as const],
 })
 
+const WEEK_RESET = '2026-10-25T03:00:00.000Z'
+const week = (percentUsed: number, resetsAt = WEEK_RESET): SessionRateLimit => ({
+  kind: 'seven_day',
+  percentUsed,
+  resetsAt,
+})
+
 const lastJson = (writes: { path: string; text: string }[]) => JSON.parse(writes.at(-1)!.text)
 
 const localHHMM = (iso: string) => {
   const d = new Date(iso)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
+
+const DAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+const localDayHHMM = (iso: string) => `${DAYS[new Date(iso).getDay()]} ${localHHMM(iso)}`
 
 test('abaixo de 85%: grava o arquivo, mostra status, sem toast', async ($, on) => {
   const w = world(on)
@@ -59,7 +69,7 @@ test('abaixo de 85%: grava o arquivo, mostra status, sem toast', async ($, on) =
     ],
     note: 'session.measure',
   })
-  expect(w.statuses.at(-1)).toBe(`Claude 5h 40% · reset ${localHHMM(RESET)}`)
+  expect(w.statuses.at(-1)).toBe(`Claude 5h 40% · sem 13% · reset ${localHHMM(RESET)}`)
   expect(w.toasts.length).toBe(0)
 })
 
@@ -123,4 +133,56 @@ test('session.start sem leitura ainda não sobrescreve o arquivo', async ($, on)
   on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 200000 }, rateLimits: [] } }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(w.writes.length).toBe(0)
+})
+
+test('status line com as duas janelas: 5h, semana e o reset da 5h', async ($, on) => {
+  const w = world(on)
+  await $.session.measure(measure([five(29), week(65)]))
+  expect(w.statuses.at(-1)).toBe(`Claude 5h 29% · sem 65% · reset ${localHHMM(RESET)}`)
+  expect(w.toasts.length).toBe(0)
+})
+
+test('só a janela semanal: status com dia da semana no reset', async ($, on) => {
+  const w = world(on)
+  await $.session.measure(measure([week(65)]))
+  const status = w.statuses.at(-1)
+  expect(status).toBe(`Claude sem 65% · reset ${localDayHHMM(WEEK_RESET)}`)
+  expect(status).toMatch(/^Claude sem 65% · reset (dom|seg|ter|qua|qui|sex|sáb) \d\d:\d\d$/)
+})
+
+test('semana: 75% dá um toast, 90% o segundo, sem duplicar na mesma janela', async ($, on) => {
+  const w = world(on)
+  await $.session.measure(measure([week(70)]))
+  expect(w.toasts.length).toBe(0)
+
+  await $.session.measure(measure([week(76)]))
+  expect(w.toasts.length).toBe(1)
+  expect(w.toasts[0]).toBe(
+    `Claude usou 75% da semana (reset ${localDayHHMM(WEEK_RESET)}). Prefira Codex/OpenCode para tarefas de risco baixo e médio.`,
+  )
+  await $.session.measure(measure([week(80)]))
+  expect(w.toasts.length).toBe(1)
+
+  await $.session.measure(measure([week(91)]))
+  expect(w.toasts.length).toBe(2)
+  expect(w.toasts[1]).toBe(
+    `Claude em 90% da semana (reset ${localDayHHMM(WEEK_RESET)}). Reserve o Claude para tarefas de risco alto.`,
+  )
+  await $.session.measure(measure([week(93)]))
+  expect(w.toasts.length).toBe(2)
+})
+
+test('semana: pular direto para 90% mostra só o aviso de 90', async ($, on) => {
+  const w = world(on)
+  await $.session.measure(measure([week(92)]))
+  expect(w.toasts.length).toBe(1)
+  expect(w.toasts[0]).toContain('90% da semana')
+})
+
+test('5h e semana têm marcas separadas no store', async ($, on) => {
+  const w = world(on)
+  await $.session.measure(measure([five(86), week(76)]))
+  expect(w.toasts.length).toBe(2)
+  await $.session.measure(measure([five(87), week(77)]))
+  expect(w.toasts.length).toBe(2)
 })

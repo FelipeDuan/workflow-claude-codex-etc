@@ -2,17 +2,40 @@ import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 // Contrato compartilhado com o leitor do Codex: não mudar campos sem combinar.
 const QUOTA_FILE = '.local/state/ai-os/quota/claude.json'
-const TOAST_KEY = 'toasted' // { window: resetsAt da janela de 5h, level: 0 | 85 | 95 }
-
 const WINDOW_MINUTES: Record<string, number> = { five_hour: 300, seven_day: 10080 }
+const WEEKDAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
 
+// Um aviso por nível por janela; a janela é identificada pelo seu resetsAt.
 type Toasted = { window: string; level: number }
+type Rule = { storeKey: string; low: number; high: number; text: (level: number, when: string) => string }
 
-const hhmm = (iso: string | undefined): string | undefined => {
+const FIVE_HOUR: Rule = {
+  storeKey: 'toasted', // { window, level: 0 | 85 | 95 }
+  low: 85,
+  high: 95,
+  text: (level, when) =>
+    level === 95
+      ? `Claude em 95% da janela de 5h${when}. Finalize com uma nota de estado (feito, decisões, próximo passo).`
+      : `Claude em 85% da janela de 5h${when}. Considere delegar tarefas simples ao Codex/OpenCode.`,
+}
+
+const SEVEN_DAY: Rule = {
+  storeKey: 'toasted_week', // { window, level: 0 | 75 | 90 }
+  low: 75,
+  high: 90,
+  text: (level, when) =>
+    level === 90
+      ? `Claude em 90% da semana${when}. Reserve o Claude para tarefas de risco alto.`
+      : `Claude usou 75% da semana${when}. Prefira Codex/OpenCode para tarefas de risco baixo e médio.`,
+}
+
+// Hora local "HH:MM"; com withDay, "dom HH:MM".
+const formatReset = (iso: string | undefined, withDay = false): string | undefined => {
   if (iso === undefined) return undefined
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return undefined
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return withDay ? `${WEEKDAYS[d.getDay()]} ${hm}` : hm
 }
 
 async function writeQuota($: EngineInterface, rateLimits: readonly SessionRateLimit[], note: string) {
@@ -35,32 +58,38 @@ async function writeQuota($: EngineInterface, rateLimits: readonly SessionRateLi
   await $.fs.write(`${home}/${QUOTA_FILE}`, JSON.stringify(payload, null, 2) + '\n')
 }
 
+async function warnOnce($: EngineInterface, w: SessionRateLimit, rule: Rule, reset: string | undefined) {
+  const target = w.percentUsed >= rule.high ? rule.high : w.percentUsed >= rule.low ? rule.low : 0
+  if (target === 0) return
+  const window = w.resetsAt ?? 'sem-reset'
+  const prev = (await $.store.get(rule.storeKey)) as Toasted | undefined
+  const level = prev?.window === window ? prev.level : 0
+  if (target <= level) return
+  // ponytail: pular direto do nível baixo para o alto mostra só o aviso alto (o mais útil); o baixo não sai depois.
+  $.ui.toast(rule.text(target, reset ? ` (reset ${reset})` : ''), { timeoutMs: 10000 })
+  await $.store.set(rule.storeKey, { window, level: target } satisfies Toasted)
+}
+
 async function showAndWarn($: EngineInterface, rateLimits: readonly SessionRateLimit[]) {
   const five = rateLimits.find(w => w.kind === 'five_hour')
-  if (five === undefined) {
+  const week = rateLimits.find(w => w.kind === 'seven_day')
+  if (five === undefined && week === undefined) {
     $.ui.status(undefined)
     return
   }
-  const reset = hhmm(five.resetsAt)
-  const pct = Math.round(five.percentUsed)
-  $.ui.status(`Claude 5h ${pct}%${reset ? ` · reset ${reset}` : ''}`)
+  const fiveReset = formatReset(five?.resetsAt)
+  const weekReset = formatReset(week?.resetsAt, true)
+  // O reset mostrado é o da janela de 5h; só com a semanal, o dela (com dia).
+  const reset = five ? fiveReset : weekReset
+  const parts = [
+    five && `5h ${Math.round(five.percentUsed)}%`,
+    week && `sem ${Math.round(week.percentUsed)}%`,
+    reset && `reset ${reset}`,
+  ].filter(Boolean)
+  $.ui.status(`Claude ${parts.join(' · ')}`)
 
-  const target = five.percentUsed >= 95 ? 95 : five.percentUsed >= 85 ? 85 : 0
-  if (target === 0) return
-  const window = five.resetsAt ?? 'sem-reset'
-  const prev = (await $.store.get(TOAST_KEY)) as Toasted | undefined
-  const level = prev?.window === window ? prev.level : 0
-  if (target <= level) return
-
-  const when = reset ? ` (reset ${reset})` : ''
-  // ponytail: pular direto de <85 para >=95 mostra só o aviso de 95 (o mais útil); o de 85 não sai depois.
-  $.ui.toast(
-    target === 95
-      ? `Claude em 95% da janela de 5h${when}. Finalize com uma nota de estado (feito, decisões, próximo passo).`
-      : `Claude em 85% da janela de 5h${when}. Considere delegar tarefas simples ao Codex/OpenCode.`,
-    { timeoutMs: 10000 },
-  )
-  await $.store.set(TOAST_KEY, { window, level: target } satisfies Toasted)
+  if (five) await warnOnce($, five, FIVE_HOUR, fiveReset)
+  if (week) await warnOnce($, week, SEVEN_DAY, weekReset)
 }
 
 export const register: Register = on => {
