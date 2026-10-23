@@ -31,7 +31,7 @@ description: "Projetar método reprodutível e adequado à questão científica.
 - Limites de inferência estão declarados.
 
 ## Regras
-- Não inventar dados, fontes, argumentos empíricos nem resultados.
-- Indicar claramente hipóteses, decisões propostas e lacunas de informação.
-- Preservar distinção entre proposta técnica e contribuição científica.
-- Encaminhar a `scientific-integrity` se houver alegações sem lastro; a `scientific-reviewer` se for solicitada avaliação completa.
+- Não inventar dados, fontes, citações, resultados nem validações. Marcar o que falta com [FONTE PENDENTE], [DADO PENDENTE], [RESULTADO NÃO DISPONÍVEL] ou [DECISÃO METODOLÓGICA PENDENTE].
+- Deixar explícito o que é fato com fonte, resultado documentado, hipótese, interpretação ou decisão proposta.
+- Não apresentar ferramenta ou implementação como contribuição científica sem a pergunta e a evidência que a sustentam.
+- Encaminhamento: comparações e métricas seguem para `experimental-evaluation`; riscos éticos ou de privacidade vão para `scientific-integrity`.

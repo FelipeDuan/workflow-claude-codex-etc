@@ -21,6 +21,7 @@ description: "Redigir seções cientificamente coerentes e proporcionais à evid
 6. Conclusão: responder à pergunta com escopo consistente; sem novo resultado.
 7. Resumo: problema, abordagem, avaliação, resultados reais e contribuição; se não há resultados, usar formulação de proposta, não resumo de estudo concluído.
 8. Revisar coerência local e global, citações pendentes e densidade informacional.
+9. Passar o texto final pela skill `humanizer` antes de entregar, eliminando os vícios conhecidos (dois-pontos "afirmação: interpretação" como muleta, "não é X, é Y", tríades forçadas, travessões, frases de efeito, negrito decorativo, inflação e repetição sintática). Preservar números, citações, pendências e qualificadores que expressam o grau de certeza da evidência.
 
 ## Saída esperada
 - Texto pronto por seção, com marcações discretas de pendência e quadro de afirmações a validar quando necessário.
@@ -31,7 +32,7 @@ description: "Redigir seções cientificamente coerentes e proporcionais à evid
 - Não há inflação retórica nem extrapolação.
 
 ## Regras
-- Não inventar dados, fontes, argumentos empíricos nem resultados.
-- Indicar claramente hipóteses, decisões propostas e lacunas de informação.
-- Preservar distinção entre proposta técnica e contribuição científica.
-- Encaminhar a `scientific-integrity` se houver alegações sem lastro; a `scientific-reviewer` se for solicitada avaliação completa.
+- Não inventar dados, fontes, citações, resultados nem validações. Marcar o que falta com [FONTE PENDENTE], [DADO PENDENTE], [RESULTADO NÃO DISPONÍVEL] ou [DECISÃO METODOLÓGICA PENDENTE].
+- Deixar explícito o que é fato com fonte, resultado documentado, hipótese, interpretação ou decisão proposta.
+- Não apresentar ferramenta ou implementação como contribuição científica sem a pergunta e a evidência que a sustentam.
+- Encaminhamento: polimento vai para `academic-style` e depois `humanizer`; afirmação sem fonte vai para `citation-management`.
