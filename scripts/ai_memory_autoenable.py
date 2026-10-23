@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SessionStart: ativa memória em repositórios autorizados, sem rede (Python >= 3.11)."""
+"""SessionStart: ativa memória em projetos autorizados, sem rede (Python >= 3.11)."""
 
 import argparse
 import json
@@ -88,16 +88,30 @@ def run():
     cwd = payload.get("cwd") if isinstance(payload, dict) else None
     if not isinstance(cwd, str) or not Path(cwd).is_absolute():
         return
-    root = git(cwd, "rev-parse", "--show-toplevel")
-    if root is None:
+    cwd = Path(cwd).resolve()
+    if not cwd.is_dir():
         return
-    common = git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    if common is None:
-        raise ValueError("não foi possível descobrir git-common-dir")
-    root, common = Path(root).resolve(), Path(common).resolve()
-    checkout = common.parent
     with args.config.open("rb") as stream:
         policy = tomllib.load(stream)
+    root = git(cwd, "rev-parse", "--show-toplevel")
+    common = None
+    if root is not None:
+        common = git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if common is None:
+            raise ValueError("não foi possível descobrir git-common-dir")
+        root, common = Path(root).resolve(), Path(common).resolve()
+        checkout = common.parent
+    else:
+        if cwd.is_relative_to(expanded("~/.paseo/worktrees")):
+            return  # Diretórios intermediários do Paseo não são projetos.
+        roots = [expanded(value) for value in policy["roots"] if cwd.is_relative_to(expanded(value))]
+        if not roots:
+            return
+        allowed_root = max(roots, key=lambda path: len(path.parts))
+        parts = cwd.relative_to(allowed_root).parts
+        if len(parts) < 2:
+            return
+        root = checkout = allowed_root.joinpath(*parts[:2])
     if not within(checkout, policy["roots"]):
         return
     restricted = policy["restricted"]
@@ -107,12 +121,24 @@ def run():
     if not isinstance(workspace, str) or not isinstance(allowed, list) or not all(isinstance(item, str) for item in allowed):
         raise ValueError("workspace/allowed_models inválidos na política")
     actions = []
-    tracked = git(root, "ls-files", "--error-unmatch", "--", ".ai-memory.toml") is not None
-    if not tracked:
-        exclude_marker(common, args.dry_run, actions)
-    exclude_claude_mem(checkout, args.dry_run, actions)
     marker = root / ".ai-memory.toml"
+    inherited = None
     if not marker.exists() and not marker.is_symlink():
+        for parent in root.parents:
+            depths = [len(parent.relative_to(expanded(value)).parts)
+                      for value in policy["roots"] if parent.is_relative_to(expanded(value))]
+            candidate = parent / ".ai-memory.toml"
+            if not depths or min(depths) == 0 or not candidate.is_file():
+                continue
+            # Primeiro nível só é projeto se for raiz Git, não mera categoria.
+            if min(depths) >= 2 or git(parent, "rev-parse", "--show-toplevel") == str(parent):
+                inherited = parent
+                break
+    tracked = common is not None and git(root, "ls-files", "--error-unmatch", "--", ".ai-memory.toml") is not None
+    if common is not None and not tracked and inherited is None:
+        exclude_marker(common, args.dry_run, actions)
+    exclude_claude_mem(inherited or checkout, args.dry_run, actions)
+    if inherited is None and not marker.exists() and not marker.is_symlink():
         actions.append("Criar " + str(marker) + " (workspace=" + workspace + ")")
         if not args.dry_run:
             try:

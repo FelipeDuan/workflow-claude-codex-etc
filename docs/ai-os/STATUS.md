@@ -184,3 +184,9 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - SEPLAN/SGG usam `restrito`. Delegação permitida só a Claude/Codex via assinatura (Felipe precisa verificar o treino nas contas) e aos dois gratuitos OpenCode com retenção zero/sem treino, confirmados na [política oficial](https://opencode.ai/v2/docs/console/models/) em 23/10/2026. O aviso é consultivo, sem bloqueio técnico do modelo.
 - Instalação real não aplicada nesta tarefa. Após instalar, Codex exige `/hooks` → trust. Hooks Claude executam em paralelo; na primeira ativação, o briefing pode chegar só na sessão seguinte. Os hooks existentes do ai-memory são preservados.
 - Verificação: 39 testes passaram com Python 3.14; `check.sh` 8/8 com esse Python no PATH. O `python3` padrão (3.9) pula 16 testes que exigem tomllib. O dry-run padrão parou no Graphify por restrição do sandbox ao ambiente do uv; `UV_TOOL_DIR=/tmp/workflow-ai-uv-tools ./install.sh --dry-run` concluiu, mostrando os dois novos hooks. Nada foi instalado.
+
+## 23/10/2026: memória também em projetos sem Git
+
+- Fora do Git, o segundo nível das raízes configuradas define o projeto; categorias e raiz ficam sem marcador. O Paseo continua aceitando somente Git. SGG e `seplan/ats` recebem workspace `restrito`.
+- Subrepositórios herdam o marcador ancestral do projeto sem criar marcador extra ou alterar seu `info/exclude`; a exclusão do Claude-Mem usa a raiz já marcada. Worktrees separados continuam recebendo marcador próprio. Diretórios inexistentes e arquivos são ignorados.
+- Verificação: 45 testes passaram com Python 3.14; `check.sh` 8/8 e `git diff --check` sem erros. Nenhuma instalação real nesta correção.

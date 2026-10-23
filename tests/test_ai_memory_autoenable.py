@@ -190,6 +190,97 @@ class AutoenableTests(unittest.TestCase):
         self.assertEqual(tomllib.loads((repo / '.ai-memory.toml').read_text())['workspace'], 'pessoal')
         self.assertFalse((other / '.ai-memory.toml').exists())
 
+    def test_non_git_sgg_restricted_and_nested_git_inherits_marker(self):
+        project = self.workspace / 'projetos/sgg-controle'
+        project.mkdir(parents=True)
+        self.settings.parent.mkdir()
+        self.settings.write_text('{}')
+        result = self.hook(project)
+        self.assertIn('Projeto restrito', result.stdout)
+        marker = project / '.ai-memory.toml'
+        self.assertEqual(tomllib.loads(marker.read_text())['workspace'], 'restrito')
+        self.assertFalse((project / '.git').exists())
+        self.assertEqual(json.loads(self.settings.read_text())['CLAUDE_MEM_EXCLUDED_PROJECTS'],
+                         str(project) + ',' + str(project) + '/**')
+        marker_before = marker.read_bytes()
+        settings_before = self.settings.read_bytes()
+        backups = list(self.settings.parent.glob('settings.json.backup-*'))
+        repo = self.repo('Workspace/projetos/sgg-controle/app-controle')
+        exclude = repo / '.git/info/exclude'
+        exclude_before = exclude.read_bytes()
+        nested = repo / 'src/components'
+        nested.mkdir(parents=True)
+        result = self.hook(nested)
+        self.assertIn('Projeto restrito', result.stdout)
+        self.assertEqual(marker.read_bytes(), marker_before)
+        self.assertFalse((repo / '.ai-memory.toml').exists())
+        self.assertEqual(exclude.read_bytes(), exclude_before)
+        self.assertEqual(self.settings.read_bytes(), settings_before)
+        self.assertEqual(list(self.settings.parent.glob('settings.json.backup-*')), backups)
+
+    def test_non_git_second_level_and_deep_cwd(self):
+        for relative, workspace in (('projetos/pessoal', 'pessoal'), ('seplan/ats', 'restrito')):
+            with self.subTest(relative=relative):
+                project = self.workspace / relative
+                deep = project / 'src/components'
+                deep.mkdir(parents=True)
+                result = self.hook(deep)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(tomllib.loads((project / '.ai-memory.toml').read_text())['workspace'], workspace)
+                self.assertFalse((deep / '.ai-memory.toml').exists())
+                self.assertEqual(list(project.rglob('.ai-memory.toml')), [project / '.ai-memory.toml'])
+                self.assertFalse((project / '.git').exists())
+
+    def test_non_git_categories_roots_paseo_outside_and_invalid_cwd_ignored(self):
+        for relative in ('Workspace', 'Workspace/projetos', 'Workspace/seplan',
+                         '.paseo/worktrees/a/b/c', 'fora/projetos/repo'):
+            with self.subTest(relative=relative):
+                cwd = self.home / relative
+                cwd.mkdir(parents=True, exist_ok=True)
+                result = self.hook(cwd)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertFalse((cwd / '.ai-memory.toml').exists())
+        project = self.workspace / 'projetos/ausente'
+        project.mkdir()
+        self.hook(project / 'does-not-exist')
+        self.assertFalse((project / '.ai-memory.toml').exists())
+        file = project / 'file'
+        file.write_text('not a directory')
+        self.hook(file)
+        self.assertFalse((project / '.ai-memory.toml').exists())
+
+    def test_git_ignores_markers_in_root_category_or_outside_roots(self):
+        for relative in ('', 'Workspace', 'Workspace/projetos'):
+            (self.home / relative).mkdir(parents=True, exist_ok=True)
+            (self.home / relative / '.ai-memory.toml').write_text('workspace = "wrong"\n')
+        repo = self.repo('Workspace/projetos/projeto')
+        self.hook(repo)
+        self.assertEqual(tomllib.loads((repo / '.ai-memory.toml').read_text())['workspace'], 'pessoal')
+
+    def test_worktree_still_creates_marker_when_main_has_one(self):
+        repo = self.repo('Workspace/seplan/repo')
+        self.hook(repo)
+        self.git(repo, '-c', 'user.name=Teste', '-c', 'user.email=teste@example.invalid',
+                 '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'inicial')
+        worktree = self.home / '.paseo/worktrees/task/repo'
+        worktree.parent.mkdir(parents=True)
+        self.git(repo, 'worktree', 'add', '-q', '--detach', str(worktree))
+        self.hook(worktree)
+        self.assertEqual(tomllib.loads((worktree / '.ai-memory.toml').read_text())['workspace'], 'restrito')
+
+    def test_nested_git_inherits_first_level_git_marker(self):
+        parent = self.repo('Workspace/repo')
+        self.hook(parent)
+        original = (parent / '.ai-memory.toml').read_bytes()
+        child = self.repo('Workspace/repo/child')
+        exclude = child / '.git/info/exclude'
+        before = exclude.read_bytes()
+        self.hook(child)
+        self.assertEqual((parent / '.ai-memory.toml').read_bytes(), original)
+        self.assertFalse((child / '.ai-memory.toml').exists())
+        self.assertEqual(exclude.read_bytes(), before)
+
 
 class MemoryHookMergeTests(unittest.TestCase):
     def test_merge_preserves_ai_memory_and_idempotence(self):
