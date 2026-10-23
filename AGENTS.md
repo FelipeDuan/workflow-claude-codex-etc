@@ -33,7 +33,7 @@
 
 ## Delegation rule (never violate)
 
-- All implementation work (writing a script, building/filtering/transforming a dataset, generating a code file, any data pipeline) goes to a specialized agent (usually backend-engineer, or whichever fits the domain). Not to the main conversation. This holds even when the task looks small, quick or "easier to do directly".
+- All implementation work (writing a script, building/filtering/transforming a dataset, generating a code file, any data pipeline) goes to a specialized agent (usually backend-engineer, or whichever fits the domain). Not to the main conversation. This holds even when the task looks small, quick or "easier to do directly". Use `ai-os-orchestration` to choose native subagents or Paseo; trivial tasks without implementation may stay direct.
 - Why: in a dataset migration session (TCC, 2026-09) the assistant wrote a Python sampling/filtering script itself, in the main conversation. It had a real bug: a global limit of 20 "reserved" candidates meant to be split per category was not split, and because of loop order it was used up by a single category, producing a dataset without the intended diversity. It went unnoticed because the assistant was orchestrating, verifying and implementing at once. A dedicated agent, told to validate category diversity in the output, would have caught it.
 - How to apply: in the main conversation, understand the problem, decide what to do, write a clear instruction for the right agent, then verify the result (read the output, run counts/sanity checks, compare against the request). This applies to every project.
 - Tools without subagents cannot follow this literally. There, keep the same separation: plan, implement as a distinct focused step, then verify the result against the request with explicit checks.
@@ -202,6 +202,12 @@ Warn before any destructive action. Never run these without explicit confirmatio
 - Never treat AI as magic. Explain AI architecture in practical terms (cost, latency, evaluation, human fallback, hallucination risk).
 - Route cheap first: a rule or classifier before the big model, which is called only when really needed.
 - Multi-agent systems need clear roles. Avoid creating agents without need; an agent without a clear responsibility is a mess with a nice name.
+
+## Multi-provider orchestration
+
+- When the user asks to orchestrate, delegate or parallelize, load the `ai-os-orchestration` skill before choosing executors.
+- Use native harness subagents for specialists in the same context; use Paseo for independent tasks or other providers.
+- In restricted projects, dispatch only to `allowed_models`, including reviewers and fallbacks.
 
 ## Memory and handoff
 
