@@ -190,3 +190,7 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - Fora do Git, o segundo nível das raízes configuradas define o projeto; categorias e raiz ficam sem marcador. O Paseo continua aceitando somente Git. SGG e `seplan/ats` recebem workspace `restrito`.
 - Subrepositórios herdam o marcador ancestral do projeto sem criar marcador extra ou alterar seu `info/exclude`; a exclusão do Claude-Mem usa a raiz já marcada. Worktrees separados continuam recebendo marcador próprio. Diretórios inexistentes e arquivos são ignorados.
 - Verificação: 45 testes passaram com Python 3.14; `check.sh` 8/8 e `git diff --check` sem erros. Nenhuma instalação real nesta correção.
+
+## 23/10/2026: orquestração descoberta em sessões novas + permissões do OpenCode
+- Problema relatado pelo Felipe: uma sessão nova orquestrou só com subagentes nativos, porque o AGENTS.md não falava de Paseo. Correção: skill `ai-os-orchestration` (procedimento, carregada sob demanda) + seção "Multi-provider orchestration" no AGENTS.md.
+- Permissões do OpenCode 2 (proposta em `OPENCODE-PERMISSOES.md`, aplicada em `~/.config/opencode/opencode.json` com backup). Teste de runtime pelo Paseo: `git status`, `ls`, `python3 -m unittest`, read e write sem nenhum pedido; `ls ~/.ssh` pediu aprovação e foi negado. A regra `external_directory` não pega o shell (o `~` não é expandido no shell, conforme a doc); a barreira ali é o `ask`.

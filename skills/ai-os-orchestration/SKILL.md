@@ -39,8 +39,8 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 
 - Always specify `provider/model` (I-19) and `--base` (I-17); a new worktree otherwise starts from the default branch.
 - Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`.
-- Claude modes: `Plan Mode`, `Always Ask`, `Accept File Edits`, `Auto mode`. Never use `Bypass`.
-- OpenCode modes: `Build`, `Plan`. Quote mode names containing spaces in shell commands.
+- Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
+- OpenCode mode IDs: `build`, `plan`. Pass mode IDs, not UI labels (`Build` is rejected).
 - Inside Paseo, use injected MCP tools `create_workspace` then `create_agent`. Explicitly set the base branch, provider/model and `settings.modeId`; children do not inherit model or mode (I-19). Apply the same ownership and permission limits.
 - Record each agent ID and worktree/branch. Await completion notifications inside Paseo without polling.
 

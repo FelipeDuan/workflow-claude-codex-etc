@@ -25,6 +25,7 @@ Como registrar: some 1 em **Ocorrências** quando acontecer de novo. Em **Ferram
 | I-17 | 23/10 | 1 | Agente do Paseo trabalhou sobre a versão errada do repositório | `paseo run --new-workspace worktree` parte da branch padrão (`main`, a versão da Bea) | Sempre passar `--base <branch>` (ex.: `--base feat/design-workflow-v1`) | — |
 | I-18 | 23/10 | 1 | Claude pai no Paseo pedia aprovação a cada ferramenta de orquestração | O modo auto do Claude pergunta antes de ferramentas MCP não liberadas | `permissions.allow: ["mcp__paseo"]` e `permissions.ask: ["mcp__paseo__respond_to_permission"]` no settings do Claude (o pai não aprova sozinho pedidos dos filhos) | — |
 | I-19 | 23/10 | 1 | `create_agent` rejeitou `codex` sem modelo e o OpenCode sem `modeId` | O filho não herda modelo/modo do pai | Sempre passar `provider/model` e `settings.modeId` (ou usar perfis do Paseo) | — |
+| I-20 | 23/10 | 2 | `paseo run --mode` rejeitou "Default Permissions" e "Build" | O Paseo aceita IDs de modo, não os rótulos exibidos em `paseo provider ls` | Codex: `auto`/`auto-review`/`full-access`; Claude: `plan`/`default`/`acceptEdits`/`auto`/`bypassPermissions`; OpenCode: `build`/`plan` (skill ai-os-orchestration corrigida) | — |
 
 ## Padrões que já aparecem
 
