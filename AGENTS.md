@@ -70,7 +70,7 @@ Own skills (procedures and checklists):
 - api-design-pattern: design or review APIs so routes, contracts, status codes and errors are predictable.
 - frontend-screen-design: design or review a screen (goal, main action, states, mobile/desktop, microcopy).
 - test-plan-generator: decide what to test.
-- scientific-writing: academic writing procedure.
+- Academic research flow (used by academic-researcher, order problem → contribution → evidence → method → writing → evaluation): research-problem, research-design, literature-review, scientific-outline, methodology-design, experimental-evaluation, scientific-writing, results-discussion, citation-management, scientific-reviewer, academic-style, scientific-integrity.
 - project-planning: plan a project or feature (scope, phases, dependencies, risks, acceptance criteria).
 - infrastructure-as-code, ci-cd-pipeline, observability-operations: infra, pipelines and operations work.
 

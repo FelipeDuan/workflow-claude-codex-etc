@@ -179,6 +179,18 @@ Os campos são tipo, id do repo, caminho de origem, nome de destino (`-` usa o `
 
 Antes de instalar, rode `scripts/check.sh`: ele valida frontmatter de skills, agentes e commands, nomes duplicados, a conversão para o Codex, a sintaxe do `install.sh`, symlinks e os SHAs do `third-party.lock`.
 
+## Fluxo de pesquisa científica
+
+O agente `academic-researcher` orquestra 12 skills, uma por etapa: `research-problem`, `research-design`, `literature-review`, `scientific-outline`, `methodology-design`, `experimental-evaluation`, `scientific-writing`, `results-discussion`, `citation-management`, `scientific-reviewer`, `academic-style` e `scientific-integrity`. A base metodológica é Wazlawick (2021), *Metodologia de Pesquisa para Ciência da Computação*, 3ª edição.
+
+Os arquivos de apoio ficam dentro da pasta da skill que os usa, para seguirem junto com o symlink:
+
+- `skills/scientific-outline/references/20-perguntas-geradoras.md` e `templates/esqueleto-artigo.md`
+- `skills/scientific-reviewer/templates/parecer-cientifico.md`
+- `skills/research-design/references/fundamentos-wazlawick.md`
+
+Para validar mudanças no agente, rode à mão os casos de `tests/academic-researcher/casos-de-aceitacao.md`. O caso C usa o artigo descrito em `tests/academic-researcher/artigo-exemplo.md`, que precisa ser fornecido à parte.
+
 ## Estrutura
 
 ```
@@ -187,6 +199,7 @@ agents/                agentes próprios (.md no formato do Claude Code)
 skills/                skills próprias (uma pasta com SKILL.md cada)
 commands/              slash commands do Claude Code
 docs/                  documentação do workflow de design e investigações futuras
+tests/                 testes dos scripts (unittest) e casos de aceitação manuais do academic-researcher (não são instalados)
 third-party.lock       fontes de terceiros com commit fixado
 install.sh             instalador
 scripts/check.sh       validação estática
