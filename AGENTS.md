@@ -93,6 +93,7 @@ Commands:
 When more than one tool fits, use this order:
 
 - Code review: native `/code-review` in Claude Code (in Codex, the `code-review` skill) for bugs and adherence to the request → `ponytail-review` for excess code → `code-review-checklist` for project patterns. Add `secure-coding-checklist` if security is touched.
+- Research: academic work (article, TCC, literature review for a paper) → `academic-researcher` and its skills (`literature-review` for the state of the art); one-off technical investigation → `research`; broad multi-source report → `deep-research`. Design references → `reference-research`. One coordinator per task.
 - Whole-project audit: `/review-project` for the overview → `improve-codebase-architecture` for deeper-module opportunities → `ponytail-audit` for what to delete or simplify.
 - Feature planning: `grill-me` (or `grill-with-docs` if the project has `CONTEXT.md`) to align and remove ambiguity → `/plan-feature` for scope, security, tests and acceptance criteria → `to-tickets` if it needs splitting into tasks. `to-spec` only with an issue tracker configured.
 - Tests: `test-plan-generator` or `/generate-tests` to decide what to test → `tdd` to implement in red-green-refactor, through the `test-engineer` agent (implementation is always delegated).

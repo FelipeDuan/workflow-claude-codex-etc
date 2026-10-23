@@ -5,7 +5,7 @@ description: "Gerir citações, fontes, BibTeX e rastreabilidade de alegações.
 
 # citation-management
 
-**Ativar quando:** o usuário pede referências, literatura citada, BibTeX, revisão de citações ou LaTeX.
+**Ativar quando:** o usuário pede referências, literatura citada, BibTeX, revisão de citações ou citações/bibliografia em LaTeX.
 
 **Fundamentação:** Wazlawick, cap. 7, §10.10 e cap. 12. O conteúdo abaixo é operacionalização do agente, não transcrição literal do livro.
 
