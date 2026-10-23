@@ -687,6 +687,13 @@ PY
 setup_mcp() {
     step "MCP"
     local pw="@playwright/mcp@$PLAYWRIGHT_MCP_VERSION" cfg="$CODEX_DIR/config.toml"
+    if want_target codex; then
+        if command -v python3 >/dev/null 2>&1; then
+            harden_merge codex-ai-memory-bridge "$cfg"
+        else
+            warn "python3 ausente; bridge do ai-memory no Codex não configurado"
+        fi
+    fi
     if ! command -v npx >/dev/null 2>&1; then
         warn "npx não encontrado; Playwright MCP não configurado (instale Node.js e rode de novo)"
     else

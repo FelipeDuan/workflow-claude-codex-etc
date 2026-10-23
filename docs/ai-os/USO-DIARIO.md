@@ -38,6 +38,8 @@ ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 
 ## Memória
 
+O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com backup (Python >= 3.11; `--no-mcp` pula essa configuração).
+
 - Projeto com memória compartilhada: `.ai-memory.toml` na raiz (`workspace` + `project`) e o caminho na exclusão do Claude-Mem (`CLAUDE_MEM_EXCLUDED_PROJECTS`). Os worktrees do Paseo já estão excluídos.
 - Ao terminar uma sessão, o agente deixa uma nota de estado; o próximo recebe o handoff sozinho.
 - Algo antigo que o ai-memory não sabe: a skill `memory-backfill` busca no Claude-Mem, confere e grava.
