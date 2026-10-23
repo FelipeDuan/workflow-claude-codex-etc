@@ -16,7 +16,7 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 ## 2. Check availability and select the executor
 
 1. Run `paseo daemon status`. If unavailable, fall back to native subagents and tell Felipe which provider or isolation requirements cannot be met.
-2. Check whether the project matches `[restricted].paths` in `config/ai-os-memory.toml` (including its main checkout for worktrees), or has a SessionStart restriction warning. File presence alone does not make a project restricted. Such projects permit only `allowed_models`, including fallback and reviewers. Match Paseo's `opencode/opencode/<model>` against policy ID `opencode/<model>`. Claude/Codex mean subscription harnesses, not gateway APIs.
+2. Check whether the project matches `[restricted].paths` in `~/Workspace/tools/workflow-ai/config/ai-os-memory.toml` (including its main checkout for worktrees), or has a SessionStart restriction warning. File presence alone does not make a project restricted. Such projects permit only `allowed_models`, including fallback and reviewers. Match Paseo's `opencode/opencode/<model>` against policy ID `opencode/<model>`. Claude/Codex mean subscription harnesses, not gateway APIs.
 3. Read `~/.local/state/ai-os/quota/claude.json` and run `python3 ~/Workspace/tools/workflow-ai/scripts/quota_codex.py`. Missing, stale, or failed readings mean `unknown`; never invent percentages. If the sandbox blocks the sensor, request a real reading from the orchestrator (I-06).
 4. Apply ADR-0002's quality floor, then choose the lowest effective coordination and quota cost:
 
