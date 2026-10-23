@@ -164,3 +164,16 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 3. Skill Creator: A/B de UMA skill de design numa cópia, sem tocar nas skills ativas (design-director, frontend-screen-design, impeccable etc.).
 4. Testar o Claude no Paseo esperando o reset do limite (comportamento nativo × Paseo) e documentar `caffeinate -i` para sessões longas com o Mac aberto.
 5. Depois: SGG.
+
+## 23/10/2026: sincronização com o upstream da Bea (v1.0/v1.1)
+- O merge de `upstream/main` (fluxo de pesquisa científica: agente `academic-researcher` + 12 skills) foi feito num worktree separado. Houve um conflito no README, resolvido mantendo os dois lados. A identidade do Felipe foi preservada (AGENTS.md, youtube-master).
+- Verificação: `check.sh` 8/8; 27 testes; `install.sh` aplicado; 2º dry-run com 0 alterações; 12 skills visíveis no Claude.
+- Revisão independente (Codex via Paseo): 1 DEFECT corrigido (o gatilho "LaTeX" da `citation-management` disparava para qualquer LaTeX) e precedência das skills de pesquisa no AGENTS.md. As melhorias que só mexem em arquivos da Bea ficam como sugestão de upstream (abaixo), para não divergir.
+- Casos de aceitação da Bea com OpenCode/DeepSeek free: **B ok** (resumo como proposta, sem resultados), **D ok** (exige baseline externo, datasets e teste estatístico), **E ok** (buscou fontes reais; os 10 DOIs foram conferidos no Crossref; marcou o que não leu).
+
+### Sugestões para a Bea (upstream)
+- `academic-style` × `scientific-writing`: deixar nas descriptions "polimento preservando conteúdo" × "redação/reorganização substantiva".
+- `research-design`, `results-discussion`, `scientific-integrity`: incluir "de pesquisa científica/manuscrito" na description.
+- `academic-researcher`: "uma pergunta focalizada por vez" em vez de "no máximo uma pergunta"; humanizer para todo texto acadêmico destinado a terceiros; caminho de `fundamentos-wazlawick.md` relativo ao diretório de skills; ferramentas web ou encaminhamento explícito da busca bibliográfica.
+- Separar "planejamento da avaliação (junto do método)" de "revisão final do manuscrito" na ordem do fluxo.
+- Levar a correção do gatilho LaTeX da `citation-management`.
