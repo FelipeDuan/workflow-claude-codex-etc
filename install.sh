@@ -12,6 +12,7 @@
 # Nunca toca em: ~/.codex/auth.json, históricos, sessões, ~/.claude/plugins.
 # MCP: `claude mcp add --scope user` grava em ~/.claude.json; no Codex, append
 # em ~/.codex/config.toml. O settings.json do Claude recebe o hook StopFailure.
+# Carrega mods/quota-guard via env.CLAUDE_CODE_PLUGIN_DIRS no settings do usuário.
 # --harden acrescenta configurações por merge não destrutivo com backup
 # (scripts/harden.py) no settings.json do Claude e config.toml do Codex.
 
@@ -63,6 +64,7 @@ Uso: ./install.sh [opções]
 
 Instala AGENTS.md, agentes, skills e commands deste repo (via symlink) e as
 skills/agentes de terceiros fixados em third-party.lock (via cópia).
+Claude: carrega mods/quota-guard via env.CLAUDE_CODE_PLUGIN_DIRS no settings do usuário.
 
 Opções:
   --dry-run          Mostra o que seria feito, sem alterar nada.
@@ -736,9 +738,10 @@ setup_mcp() {
 # ------------------------------------------------------------------ hardening (--harden, opt-in)
 
 # Roda scripts/harden.py em modo check; se houver mudanças, faz backup e aplica.
-harden_merge() { # $1 = modo do harden.py, $2 = arquivo
+harden_merge() { # $1 = modo do harden.py, $2 = arquivo, demais = argumentos do modo
     local mode="$1" file="$2" out rc line
-    if out="$(python3 "$REPO_DIR/scripts/harden.py" "$mode" "$file" --check)"; then rc=0; else rc=$?; fi
+    shift 2
+    if out="$(python3 "$REPO_DIR/scripts/harden.py" "$mode" "$file" "$@" --check)"; then rc=0; else rc=$?; fi
     while IFS= read -r line; do
         case "$line" in
             "CHANGE "*) did "merge     ${line#CHANGE }" ;;
@@ -753,7 +756,7 @@ EOF
             [ "$DRY_RUN" = 1 ] && return 0
             LAST_BACKUP=""
             [ -f "$file" ] && backup_copy "$file"
-            if python3 "$REPO_DIR/scripts/harden.py" "$mode" "$file" --apply >/dev/null; then rc=0; else rc=$?; fi
+            if python3 "$REPO_DIR/scripts/harden.py" "$mode" "$file" "$@" --apply >/dev/null; then rc=0; else rc=$?; fi
             [ "$rc" = 10 ] || warn "harden.py $mode terminou com código $rc ao aplicar em $file"
             ;;
         2) ;; # harden.py já explicou o motivo em uma linha WARN; arquivo intocado
@@ -842,8 +845,11 @@ fi
 if want_target claude; then
     if command -v python3 >/dev/null 2>&1; then
         harden_merge claude-stop-failure "$CLAUDE_DIR/settings.json"
+        if [ -d "$REPO_DIR/mods/quota-guard" ]; then
+            harden_merge claude-plugin-dirs "$CLAUDE_DIR/settings.json" "$REPO_DIR/mods/quota-guard"
+        fi
     else
-        warn "python3 ausente; hook StopFailure não configurado"
+        warn "python3 ausente; hook StopFailure e env.CLAUDE_CODE_PLUGIN_DIRS não configurados"
     fi
 fi
 [ "$MCP" = 1 ] && setup_mcp

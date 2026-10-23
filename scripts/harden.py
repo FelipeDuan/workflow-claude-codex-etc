@@ -8,6 +8,7 @@ Uso:
   harden.py claude-settings <settings.json> --check|--apply
   harden.py codex-env       <config.toml>   --check|--apply
   harden.py claude-stop-failure <settings.json> --check|--apply
+  harden.py claude-plugin-dirs <settings.json> <dir> --check|--apply
 
 Saída (stdout), uma linha por item:
   CHANGE <descrição>   algo seria/foi acrescentado
@@ -145,6 +146,34 @@ def claude_stop_failure(path, apply):
     return CHANGED
 
 
+def claude_plugin_dirs(path, directory, apply):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        data = {}
+    except (OSError, ValueError):
+        say("WARN", f"{path}: JSON inválido; arquivo intocado")
+        return UNSAFE
+    if not isinstance(data, dict) or not isinstance(data.get("env", {}), dict):
+        say("WARN", f"{path}: env não é objeto; arquivo intocado")
+        return UNSAFE
+    env = data.get("env", {})
+    key = "CLAUDE_CODE_PLUGIN_DIRS"
+    current = env.get(key, "")
+    if not isinstance(current, str):
+        say("WARN", f"{path}: env.{key} não é string; arquivo intocado")
+        return UNSAFE
+    if directory in current.split(":"):
+        return NOTHING
+    say("CHANGE", f"env.{key} += {directory} em {path}")
+    if apply:
+        env[key] = current + (":" if current and not current.endswith(":") else "") + directory
+        data["env"] = env
+        write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return CHANGED
+
+
 def strip_added(data, had_policy):
     """Remove de uma cópia o que o append acrescenta, para comparar com o original."""
     import copy
@@ -217,6 +246,8 @@ def codex_env(path, apply):
 
 
 def main(argv):
+    if len(argv) == 5 and argv[1] == "claude-plugin-dirs" and argv[4] in ("--check", "--apply"):
+        return claude_plugin_dirs(argv[2], argv[3], argv[4] == "--apply")
     if len(argv) != 4 or argv[1] not in ("claude-settings", "codex-env", "claude-stop-failure") or argv[3] not in ("--check", "--apply"):
         print(__doc__, file=sys.stderr)
         return 64
