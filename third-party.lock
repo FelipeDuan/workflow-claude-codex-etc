@@ -29,7 +29,7 @@ repo  emil         https://github.com/emilkowalski/skills         d16ebe60d09a5b
 repo  taste        https://github.com/leonxlnx/taste-skill        c184364c58658b2f131b4ae8bd3d206cabb3deee
 repo  impeccable   https://github.com/pbakaus/impeccable          e0881d2de397d5e9761d7b35ff5017d8f5ebf69b
 repo  humanizer    https://github.com/blader/humanizer            9862685f575c65a8247f90369951df1b3416e3d6
-repo  ponytail     https://github.com/DietrichGebert/ponytail     e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156
+repo  ponytail     https://github.com/DietrichGebert/ponytail     16352ac229eb08a9598dcae48fe9f2b342567d86
 repo  youtube      https://github.com/sergebulaev/youtube-skills  0e0a8cae2a7c78c77f89090fe3288f86439e622b
 # Referência apenas (NÃO instalado; o conteúdo foi incorporado ao AGENTS.md):
 # repo karpathy    https://github.com/multica-ai/andrej-karpathy-skills 2c606141936f1eeef17fa3043a72095b4765b9c2
