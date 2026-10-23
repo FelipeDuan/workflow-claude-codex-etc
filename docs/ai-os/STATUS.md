@@ -130,3 +130,10 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 
 ## Gotcha: `ai-memory run` retoma por padrão
 `ai-memory run codex exec ...` vira `codex exec resume <sessão>` quando o workstream já tem uma sessão do Codex, e as flags como `--sandbox` são rejeitadas. Para tarefa nova, usar `ai-memory run --fresh codex exec ...`. Para continuar o trabalho, `ai-memory run codex`.
+
+## Rodada de 22–23/10/2026 (pós-reset): concluído
+- Passo 4: mod `quota-guard` (5h + semana) validado em sessão real; o install.sh o carrega via `CLAUDE_CODE_PLUGIN_DIRS`.
+- Leitor oficial da franquia do Codex: `scripts/quota_codex.py` (App Server). Rodar fora do sandbox (I-06).
+- Modelos gratuitos do OpenCode (GLM-5.3-Flash e DeepSeek V4.1 Flash) testados em worktrees paralelos: os dois ok. Isso fecha o T3.
+- ADR-0002 (roteamento por franquia), `telemetria.jsonl` (5 tarefas), `PESQUISA-ROTEAMENTO.md` e `INCIDENTES.md` (11 itens).
+- Próximo: merge em `feat/design-workflow-v1` + install.sh; depois, teste do Paseo Desktop no laboratório (sem o Continuity), se o Felipe aprovar.
