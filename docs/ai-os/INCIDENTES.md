@@ -22,6 +22,7 @@ Como registrar: some 1 em **Ocorrências** quando acontecer de novo. Em **Ferram
 | I-14 | 23/10 | 1 | Claude-Mem capturou a sessão do Claude num worktree do Paseo | A exclusão só cobria `~/Workspace/tools/...`; os worktrees do Paseo ficam em `~/.paseo/worktrees` | `~/.paseo/worktrees/**` em `CLAUDE_MEM_EXCLUDED_PROJECTS` | — |
 | I-15 | 23/10 | 1 | ~1 GB em disco gasto sem pedido | Na primeira abertura, o Paseo baixa modelos locais de voz/ditado (Kokoro, Parakeet; só inglês) | `features.dictation.enabled=false` e `features.voiceMode.enabled=false`. Remover `~/.paseo/models` só com autorização do Felipe | — |
 | I-16 | 23/10 | 1 | `paseo ls` mostra "running" com o agente parado esperando aprovação | O `ls` não distingue espera de permissão | Usar `paseo wait <id>` / `paseo permit ls`, que mostram "waiting for permission" | Parcial para o I-01: espera de aprovação é visível; travamento por stdin não foi reproduzido |
+| I-17 | 23/10 | 1 | Agente do Paseo trabalhou sobre a versão errada do repositório | `paseo run --new-workspace worktree` parte da branch padrão (`main`, a versão da Bea) | Sempre passar `--base <branch>` (ex.: `--base feat/design-workflow-v1`) | — |
 
 ## Padrões que já aparecem
 
