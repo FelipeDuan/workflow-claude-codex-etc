@@ -137,3 +137,15 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - Modelos gratuitos do OpenCode (GLM-5.3-Flash e DeepSeek V4.1 Flash) testados em worktrees paralelos: os dois ok. Isso fecha o T3.
 - ADR-0002 (roteamento por franquia), `telemetria.jsonl` (5 tarefas), `PESQUISA-ROTEAMENTO.md` e `INCIDENTES.md` (11 itens).
 - Próximo: merge em `feat/design-workflow-v1` + install.sh; depois, teste do Paseo Desktop no laboratório (sem o Continuity), se o Felipe aprovar.
+
+## 23/10/2026: Paseo adotado (ADR-0003)
+- POC no laboratório aprovada: 3 harnesses, paralelismo em worktrees, aprovações, ai-memory, sem dupla captura no Claude-Mem, sem processos órfãos. Detalhes no ADR-0003; incidentes I-12 a I-16.
+- Correções feitas: OpenCode no Paseo (override de comando); MCP do ai-memory no Codex via `mcp-bridge` (vale também fora do Paseo); `~/.paseo/worktrees/**` excluído do Claude-Mem; voz/ditado desligados.
+- Guia: `docs/ai-os/USO-DIARIO.md`.
+
+## PRÓXIMOS PASSOS (rodada seguinte)
+1. Backlog de ferramentas (pesquisa delegada ao Codex → `docs/ai-os/BACKLOG-FERRAMENTAS.md`): Claude Code Setup (diagnóstico somente leitura), Skill Creator (já instalado como plugin: usar em A/B das skills), Task Observer, Serena, Headroom (só em teste isolado, por causa do proxy), Context7 (já instalado como plugin), OmniRoute/OpenRouter (ver PESQUISA-ROTEAMENTO), Ponytail 5.x × SHA do third-party.lock.
+2. Remover `~/.paseo/models` (~1 GB de voz em inglês): **aguarda autorização do Felipe**.
+3. POC D pendente: travamento por stdin dentro do Paseo; comparar `paseo usage` com os sensores; skills de orquestração do Paseo (ver onde instalam antes).
+4. Política de roteamento aplicada no Paseo: perfis (Architecture/Implementation/Economy) + o coordenador consultando os arquivos de franquia.
+5. Depois: SGG como primeiro projeto real.

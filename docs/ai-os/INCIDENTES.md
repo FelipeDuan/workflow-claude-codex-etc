@@ -17,6 +17,11 @@ Como registrar: some 1 em **Ocorrências** quando acontecer de novo. Em **Ferram
 | I-09 | 22/10 | 1 | Volta Codex → Claude sem saber o que o Codex entregou | O ai-memory não capturava o texto do agente (`capture_assistant` desligado) | `capture_assistant = true` + hooks reinstalados com `--capture-assistant` | — |
 | I-10 | 22/10 | 1 | Notificação de "failed" num teste que tinha passado | O `wait` do shell devolveu exit 1, não os modelos | Verificar o resultado real (testes/commits), nunca só o exit code do wrapper | — |
 | I-11 | 22/10 | 1 | O Codex não tem gancho quando bate o limite de uso | Nenhum hook dispara em UsageLimitExceeded (openai/codex#21160) | Aviso de sessão cortada do ai-memory + leitor de franquia (`quota_codex.py`) para agir antes | Hipótese: Paseo/Continuity detecta o erro de quota pelo lado do orquestrador. Testar no laboratório |
+| I-12 | 23/10 | 1 | Paseo Desktop não detectou o OpenCode | App aberto pelo Finder não herda o PATH do fish (`~/.opencode/bin`) | `paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]}}'` + `paseo reload` | — |
+| I-13 | 23/10 | 1 | Codex lançado pelo Paseo sem as ferramentas MCP do ai-memory | O MCP do Codex dependia de `AI_MEMORY_AUTH_TOKEN` no ambiente (instalação padrão do ai-memory) | `~/.codex/config.toml`: `mcp_servers.ai-memory` passou a usar `ai-memory mcp-bridge` (lê o token do arquivo). **Reinstalar com `ai-memory install-mcp --client codex` desfaz isto** | — |
+| I-14 | 23/10 | 1 | Claude-Mem capturou a sessão do Claude num worktree do Paseo | A exclusão só cobria `~/Workspace/tools/...`; os worktrees do Paseo ficam em `~/.paseo/worktrees` | `~/.paseo/worktrees/**` em `CLAUDE_MEM_EXCLUDED_PROJECTS` | — |
+| I-15 | 23/10 | 1 | ~1 GB em disco gasto sem pedido | Na primeira abertura, o Paseo baixa modelos locais de voz/ditado (Kokoro, Parakeet; só inglês) | `features.dictation.enabled=false` e `features.voiceMode.enabled=false`. Remover `~/.paseo/models` só com autorização do Felipe | — |
+| I-16 | 23/10 | 1 | `paseo ls` mostra "running" com o agente parado esperando aprovação | O `ls` não distingue espera de permissão | Usar `paseo wait <id>` / `paseo permit ls`, que mostram "waiting for permission" | Parcial para o I-01: espera de aprovação é visível; travamento por stdin não foi reproduzido |
 
 ## Padrões que já aparecem
 
