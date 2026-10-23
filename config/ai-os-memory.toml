@@ -1,0 +1,17 @@
+# Política local: o hook cria marcadores; o ai-memory continua em modo allowlist.
+roots = ["~/Workspace", "~/.paseo/worktrees"]
+
+[restricted]
+paths = ["~/Workspace/seplan", "~/Workspace/projetos/sgg-controle"]
+workspace = "restrito"
+# claude/codex: provedores das assinaturas, não suas APIs via gateway.
+# Felipe deve verificar e desativar treino nas contas Claude/ChatGPT.
+# OpenCode Console (antigo Zen), catálogo e Privacy, consultados em 2026-10-23:
+# https://opencode.ai/v2/docs/console/models/
+# Variantes gratuitas aprovadas nesta política: retenção zero e ausência de treino.
+allowed_models = [
+  "claude",
+  "codex",
+  "opencode/glm-5.3-flash-free",
+  "opencode/deepseek-v4.1-flash-free",
+]

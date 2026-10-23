@@ -177,3 +177,10 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - `academic-researcher`: "uma pergunta focalizada por vez" em vez de "no máximo uma pergunta"; humanizer para todo texto acadêmico destinado a terceiros; caminho de `fundamentos-wazlawick.md` relativo ao diretório de skills; ferramentas web ou encaminhamento explícito da busca bibliográfica.
 - Separar "planejamento da avaliação (junto do método)" de "revisão final do manuscrito" na ordem do fluxo.
 - Levar a correção do gatilho LaTeX da `citation-management`.
+
+## 23/10/2026: memória automática por projeto
+
+- Política versionada em `config/ai-os-memory.toml`; SessionStart cria marcadores locais dentro das raízes permitidas, mantendo o allowlist do ai-memory. Worktrees usam a classificação do checkout principal; marcadores existentes ficam intactos.
+- SEPLAN/SGG usam `restrito`. Delegação permitida só a Claude/Codex via assinatura (Felipe precisa verificar o treino nas contas) e aos dois gratuitos OpenCode com retenção zero/sem treino, confirmados na [política oficial](https://opencode.ai/v2/docs/console/models/) em 23/10/2026. O aviso é consultivo, sem bloqueio técnico do modelo.
+- Instalação real não aplicada nesta tarefa. Após instalar, Codex exige `/hooks` → trust. Hooks Claude executam em paralelo; na primeira ativação, o briefing pode chegar só na sessão seguinte. Os hooks existentes do ai-memory são preservados.
+- Verificação: 39 testes passaram com Python 3.14; `check.sh` 8/8 com esse Python no PATH. O `python3` padrão (3.9) pula 16 testes que exigem tomllib. O dry-run padrão parou no Graphify por restrição do sandbox ao ambiente do uv; `UV_TOOL_DIR=/tmp/workflow-ai-uv-tools ./install.sh --dry-run` concluiu, mostrando os dois novos hooks. Nada foi instalado.

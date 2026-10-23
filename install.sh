@@ -786,6 +786,31 @@ setup_harden() {
     fi
 }
 
+setup_memory_autoenable() {
+    local candidate memory_python=""
+    step "Memória automática por projeto (SessionStart)"
+    # O macOS pode oferecer python3 3.9 antes de uma instalação atual no PATH.
+    for candidate in python3 python3.14 python3.13 python3.12 python3.11 \
+        /opt/homebrew/bin/python3 /usr/local/bin/python3 "$HOME/.local/bin/python3.12"; do
+        if command -v "$candidate" >/dev/null 2>&1 && \
+            "$candidate" -c 'import tomllib' >/dev/null 2>&1; then
+            memory_python="$(command -v "$candidate")"
+            break
+        fi
+    done
+    if [ -z "$memory_python" ]; then
+        warn "SessionStart da memória requer Python >= 3.11 (tomllib); hook não configurado"
+        return 0
+    fi
+    if want_target claude; then
+        harden_merge memory-session-start "$CLAUDE_DIR/settings.json" "$REPO_DIR/scripts/ai_memory_autoenable.py" "$memory_python"
+    fi
+    if want_target codex; then
+        harden_merge memory-session-start "$CODEX_DIR/hooks.json" "$REPO_DIR/scripts/ai_memory_autoenable.py" "$memory_python"
+        say "  Codex: depois de instalar, abra /hooks → trust para confiar no novo SessionStart."
+    fi
+}
+
 # ------------------------------------------------------------------ relatório
 
 count_entries() { # conta entradas (arquivos, dirs ou links) que casam com $2 em $1
@@ -859,6 +884,7 @@ if want_target claude; then
         warn "python3 ausente; hook StopFailure e env.CLAUDE_CODE_PLUGIN_DIRS não configurados"
     fi
 fi
+if want_target claude || want_target codex; then setup_memory_autoenable; fi
 [ "$MCP" = 1 ] && setup_mcp
 [ "$HARDEN" = 1 ] && setup_harden
 

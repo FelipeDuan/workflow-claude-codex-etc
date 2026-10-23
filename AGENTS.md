@@ -205,6 +205,8 @@ Warn before any destructive action. Never run these without explicit confirmatio
 
 ## Memory and handoff
 
+- At project start, use ai-memory's briefing/handoff; use the memory-backfill skill when older knowledge is missing.
+- In restricted projects (config/ai-os-memory.toml), delegate only to allowed_models.
 - In a repo with `.ai-memory.toml`, ai-memory opens the next agent's handoff automatically at session end and carries your last message. End every session that changed or investigated something with a short state note: what was done and verified, decisions in force, open questions, next exact step.
 - Don't create an explicit handoff unless Felipe asks; it duplicates the automatic one.
 - Memory is history, not truth: Git, code, tests and accepted ADRs win. Check what memory says before acting on it.

@@ -16,7 +16,7 @@ Sem o app, tudo continua funcionando pelo terminal: `claude`, `ai-memory run cod
 | Risco alto (segurança, auth, dados, arquitetura) | Claude Opus ou Codex (GPT-6 Astra) | outra família |
 | Risco médio | Codex (Luna/Sol) ou Claude Sonnet | quando o diff for grande |
 | Risco baixo e com teste | OpenCode gratuito (GLM-5.3-Flash / DeepSeek V4.1 Flash) | conferir testes e diff |
-| Dados de SEPLAN/clientes | nenhum provedor sem acordo | — |
+| Dados de SEPLAN/clientes | somente `allowed_models` em `config/ai-os-memory.toml`; conferir treino das contas | — |
 
 Antes de escolher, olhe a franquia:
 - Claude: barra de status (`Claude 5h X% · sem Y%`) ou `~/.local/state/ai-os/quota/claude.json`.
@@ -52,7 +52,10 @@ ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 
 O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com backup (Python >= 3.11; `--no-mcp` pula essa configuração).
 
-- Projeto com memória compartilhada: `.ai-memory.toml` na raiz (`workspace` + `project`) e o caminho na exclusão do Claude-Mem (`CLAUDE_MEM_EXCLUDED_PROJECTS`). Os worktrees do Paseo já estão excluídos.
+- O `./install.sh` registra SessionStart no Claude e no Codex (Python >= 3.11). No Codex, depois da instalação, abra `/hooks` → trust. O ai-memory deve estar instalado e continuar em modo allowlist: sem marcador válido, não captura.
+- Em repositórios dentro das raízes de `config/ai-os-memory.toml`, o hook cria `.ai-memory.toml` local, ignora-o no Git e exclui o checkout do Claude-Mem. Preserva marcadores existentes. Worktrees herdam a classificação do checkout principal; SEPLAN/SGG usam workspace `restrito`, os demais `pessoal`. O projeto é derivado pelo ai-memory, sem nome fixado no marcador.
+- O aviso de projeto restrito orienta a delegação; não bloqueia tecnicamente modelos. Claude/Codex significam assinaturas: Felipe deve conferir e desativar treino nas contas Claude/ChatGPT. Do OpenCode Zen/Console, só os dois IDs gratuitos listados na política estão permitidos.
+- Os hooks do Claude rodam em paralelo: o primeiro briefing pode exigir abrir outra sessão após criar o marcador. O instalador preserva os hooks do ai-memory; marcadores existentes também mantêm sua configuração de briefing.
 - Ao terminar uma sessão, o agente deixa uma nota de estado; o próximo recebe o handoff sozinho.
 - Algo antigo que o ai-memory não sabe: a skill `memory-backfill` busca no Claude-Mem, confere e grava.
 

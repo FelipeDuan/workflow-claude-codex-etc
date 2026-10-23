@@ -55,8 +55,14 @@
       "codex",
       "antigravity"
     ],
-    "institucional": []
+    "institucional": [
+      "claude",
+      "codex",
+      "opencode/glm-5.3-flash-free",
+      "opencode/deepseek-v4.1-flash-free"
+    ]
   },
+  "nota_institucional": "Segue config/ai-os-memory.toml. Claude/Codex somente via assinaturas, condicionado à configuração de treino das contas Claude/ChatGPT que Felipe deve verificar e desativar. OpenCode Zen/Console: somente os IDs explícitos com retenção zero e sem treino, conforme política oficial consultada em 2026-10-23: https://opencode.ai/v2/docs/console/models/. Lista consultiva, sem bloqueio técnico de modelos.",
   "guardrails": {
     "quota_desconhecida": "pedir verificacao real",
     "limite_fallback": 2,

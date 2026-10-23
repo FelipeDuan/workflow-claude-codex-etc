@@ -10,6 +10,7 @@ Uso:
   harden.py codex-ai-memory-bridge <config.toml> --check|--apply
   harden.py claude-stop-failure <settings.json> --check|--apply
   harden.py claude-plugin-dirs <settings.json> <dir> --check|--apply
+  harden.py memory-session-start <settings.json|hooks.json> <script> <python> --check|--apply
 
 Saída (stdout), uma linha por item:
   CHANGE <descrição>   algo seria/foi acrescentado
@@ -177,6 +178,38 @@ def claude_plugin_dirs(path, directory, apply):
     return CHANGED
 
 
+def memory_session_start(path, script, python, apply):
+    """Acrescenta só nosso handler, preservando os hooks do ai-memory e do usuário."""
+    import shlex
+
+    try:
+        with open(path, encoding="utf-8") as stream:
+            data = json.load(stream)
+    except FileNotFoundError:
+        data = {}
+    except (OSError, ValueError):
+        say("WARN", f"{path}: JSON inválido; arquivo intocado")
+        return UNSAFE
+    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+        say("WARN", f"{path}: hooks não é objeto; arquivo intocado")
+        return UNSAFE
+    hooks = data.get("hooks", {})
+    entries = hooks.get("SessionStart", [])
+    if not isinstance(entries, list):
+        say("WARN", f"{path}: SessionStart não é lista; arquivo intocado")
+        return UNSAFE
+    entry = {"hooks": [{"type": "command", "command": shlex.join([python, script]), "timeout": 2}]}
+    if entry in entries:
+        return NOTHING
+    say("CHANGE", f"hooks.SessionStart (memória automática) em {path}")
+    if apply:
+        # Ordem não garante precedência: Claude executa handlers em paralelo.
+        hooks["SessionStart"] = [entry] + entries
+        data["hooks"] = hooks
+        write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return CHANGED
+
+
 def strip_added(data, had_policy):
     """Remove de uma cópia o que o append acrescenta, para comparar com o original."""
     import copy
@@ -322,6 +355,8 @@ def codex_ai_memory_bridge(path, apply):
 
 
 def main(argv):
+    if len(argv) == 6 and argv[1] == "memory-session-start" and argv[5] in ("--check", "--apply"):
+        return memory_session_start(argv[2], argv[3], argv[4], argv[5] == "--apply")
     if len(argv) == 5 and argv[1] == "claude-plugin-dirs" and argv[4] in ("--check", "--apply"):
         return claude_plugin_dirs(argv[2], argv[3], argv[4] == "--apply")
     if len(argv) != 4 or argv[1] not in ("claude-settings", "codex-env", "codex-ai-memory-bridge", "claude-stop-failure") or argv[3] not in ("--check", "--apply"):
