@@ -149,3 +149,18 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 3. POC D pendente: travamento por stdin dentro do Paseo; comparar `paseo usage` com os sensores; skills de orquestração do Paseo (ver onde instalam antes).
 4. Política de roteamento aplicada no Paseo: perfis (Architecture/Implementation/Economy) + o coordenador consultando os arquivos de franquia.
 5. Depois: SGG como primeiro projeto real.
+
+## 23/10/2026 (tarde): notificações, autonomia, Ponytail 5 e visão
+- **Teste de notificações: CONFIRMADO.** Um Claude pai no Paseo (Sonnet 5.5) criou filhos Codex e OpenCode em worktrees, encerrou o turno e foi acordado pelo Paseo a cada pedido de permissão e a cada conclusão. Conferiu os arquivos e resumiu sem fazer polling. Codex `auto` trabalhou sem pedir nada; OpenCode pediu leitura (`ls`, `cat`).
+- Ferramentas de orquestração do Paseo ligadas: `daemon.mcp = {enabled: true, injectIntoAgents: true}`.
+- Claude: `mcp__paseo` liberado; `respond_to_permission` continua "ask" (I-18).
+- Ponytail: skills atualizadas para v5.3.2 (SHA `16352ac`), sem plugin nem hooks; instaladas.
+- `docs/ai-os/VISION.md` (Codex): visão de longo prazo, marcos M0–M5.
+- Removido `~/.paseo/models` (~1 GB), autorizado pelo Felipe.
+
+## PRÓXIMOS PASSOS (M1: roteamento consultivo + autonomia supervisionada)
+1. **Felipe, na UI do Paseo** (Settings → host → Agents → Agent profiles): criar os perfis da tabela em `USO-DIARIO.md`.
+2. OpenCode: liberar comandos só de leitura (ls, cat, rg, git status/diff/log, testes) e manter o resto em "ask". Conferir na doc v2 a semântica de ordem das regras.
+3. Skill Creator: A/B de UMA skill de design numa cópia, sem tocar nas skills ativas (design-director, frontend-screen-design, impeccable etc.).
+4. Testar o Claude no Paseo esperando o reset do limite (comportamento nativo × Paseo) e documentar `caffeinate -i` para sessões longas com o Mac aberto.
+5. Depois: SGG.

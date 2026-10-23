@@ -23,6 +23,8 @@ Como registrar: some 1 em **Ocorrências** quando acontecer de novo. Em **Ferram
 | I-15 | 23/10 | 1 | ~1 GB em disco gasto sem pedido | Na primeira abertura, o Paseo baixa modelos locais de voz/ditado (Kokoro, Parakeet; só inglês) | `features.dictation.enabled=false` e `features.voiceMode.enabled=false`. Remover `~/.paseo/models` só com autorização do Felipe | — |
 | I-16 | 23/10 | 1 | `paseo ls` mostra "running" com o agente parado esperando aprovação | O `ls` não distingue espera de permissão | Usar `paseo wait <id>` / `paseo permit ls`, que mostram "waiting for permission" | Parcial para o I-01: espera de aprovação é visível; travamento por stdin não foi reproduzido |
 | I-17 | 23/10 | 1 | Agente do Paseo trabalhou sobre a versão errada do repositório | `paseo run --new-workspace worktree` parte da branch padrão (`main`, a versão da Bea) | Sempre passar `--base <branch>` (ex.: `--base feat/design-workflow-v1`) | — |
+| I-18 | 23/10 | 1 | Claude pai no Paseo pedia aprovação a cada ferramenta de orquestração | O modo auto do Claude pergunta antes de ferramentas MCP não liberadas | `permissions.allow: ["mcp__paseo"]` e `permissions.ask: ["mcp__paseo__respond_to_permission"]` no settings do Claude (o pai não aprova sozinho pedidos dos filhos) | — |
+| I-19 | 23/10 | 1 | `create_agent` rejeitou `codex` sem modelo e o OpenCode sem `modeId` | O filho não herda modelo/modo do pai | Sempre passar `provider/model` e `settings.modeId` (ou usar perfis do Paseo) | — |
 
 ## Padrões que já aparecem
 

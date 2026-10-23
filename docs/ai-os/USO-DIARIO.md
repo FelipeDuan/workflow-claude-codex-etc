@@ -23,6 +23,18 @@ Antes de escolher, olhe a franquia:
 - Codex: `python3 ~/Workspace/tools/workflow-ai/scripts/quota_codex.py`.
 - No Paseo: `paseo usage`.
 
+## Perfis sugeridos no Paseo (criar na UI)
+
+| Perfil | Provedor/modelo | Modo | Quando usar (campo "When to use") |
+|---|---|---|---|
+| Arquitetura | claude / Opus | Plan Mode | Requisitos ambíguos, decisões de arquitetura e segurança. Não altera código de produção |
+| Desenvolvimento autônomo | codex / gpt-6.1-sol | Auto-review | Implementar um plano aprovado num worktree próprio, rodar testes e corrigir sem perguntar a cada passo |
+| Frontend e design | claude / Sonnet 5.5 | Auto mode | Telas e UX usando as skills de design e o agente frontend-ux-ui |
+| Revisão independente | codex (se o autor foi Claude) ou claude (se foi Codex) | Plan Mode | Revisar diff de risco médio/alto sem escrever no checkout do autor |
+| Economia | opencode / deepseek-v4.1-flash-free ou glm-5.3-flash-free | Build | Tarefas de baixo risco, com teste, só em projeto pessoal/público |
+
+Um Claude aberto **dentro do Paseo** recebe notificações dos filhos (acorda quando terminam). Um Claude aberto no terminal delega por `paseo run` e consulta com `paseo wait`.
+
 ## Comandos úteis
 
 ```sh
