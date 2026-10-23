@@ -1,0 +1,5 @@
+{
+  "name": "quota-guard",
+  "version": "0.1.0",
+  "description": "Grava as janelas de cota do Claude em ~/.local/state/ai-os/quota/claude.json, mostra a janela de 5h na status line e avisa em 85% e 95%."
+}
