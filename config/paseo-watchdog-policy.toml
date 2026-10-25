@@ -1,0 +1,111 @@
+# Política de autoaprovação do vigia do Paseo (scripts/paseo_watchdog.py).
+#
+# Regras ORDENADAS: a primeira que casar vence. `name` e `description` são
+# expressões regulares (case-insensitive) sobre o nome e a descrição do pedido
+# em `paseo permit ls --json`. Sem `name`, vale qualquer ferramenta; sem
+# `description`, vale qualquer descrição. Pedido sem regra nenhuma -> notify.
+#
+# Ações:
+#   deny    nunca aprova automaticamente; o pedido fica para decisão humana.
+#   allow   aprova, MAS só se o cwd do agente estiver em allowed_roots e não
+#           for projeto restrito (config/ai-os-memory.toml ou marcador
+#           .ai-memory.toml com workspace = "restrito").
+#   notify  nunca aprova; só avisa o Felipe.
+#
+# deny primeiro, allow depois: assim "cat .env" e "git commit && rm -rf" caem
+# no deny antes de qualquer regra de leitura.
+
+version = 1
+
+# O cwd do agente precisa estar dentro de uma destas raízes para haver allow.
+# Worktrees do Paseo + repositórios em que agentes autônomos são esperados.
+allowed_roots = [
+  "~/.paseo/worktrees",
+  "~/Workspace/tools/workflow-ai",
+  "~/Workspace/projetos/sgg-v3-docs",
+]
+
+# ------------------------------------------------------------------ deny
+# Nada aqui é aprovado automaticamente. A decisão continua sendo do Felipe.
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal|edit|write|read|grep|glob)"
+description = "(^|[^A-Za-z0-9])(\\.env(\\.[A-Za-z0-9_-]+)?|id_rsa|id_ed25519|\\.ssh/|\\.aws/|\\.netrc|credentials?|secret(s)?\\.(json|ya?ml|toml|env)|passwords?\\.(json|ya?ml|txt))"
+reason = "arquivo sensível (segredo/credencial)"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal|edit|write)"
+description = "(^|[/\\s])(backups?|backup)(/|\\s|$)|(^|[^A-Za-z0-9])(\\.workflow-ai-backup|\\.bak)([^A-Za-z0-9]|$)"
+reason = "backup (não sobrescrever nem apagar)"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal|edit|write|read)"
+description = "\\.(xlsx|xlsm|xls|csv|tsv|ods|numbers)([^A-Za-z0-9]|$)"
+reason = "planilha (dado de trabalho)"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "(^|[;&|]\\s*)rm\\s+(-[A-Za-z]*[rRfF][A-Za-z]*\\s+)+|(^|[;&|]\\s*)rm\\s+-[A-Za-z]*[rRfF]"
+reason = "remoção recursiva/forçada"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "\\b(npm|pnpm|yarn|bun)\\s+(i|install|add|upgrade|update)\\b|\\bpip3?\\s+install\\b|\\buv\\s+(tool\\s+)?(install|add|sync)\\b|\\bbrew\\s+(install|upgrade|reinstall)\\b|\\bcargo\\s+install\\b|\\bgo\\s+install\\b|\\b(apt|apt-get|dnf|yum|apk)\\s+install\\b"
+reason = "instalação de pacote (muda dependências)"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "\\b(migrate|migration|migrations|db:migrate|prisma\\s+migrate|alembic\\s+(upgrade|downgrade)|knex\\s+migrate|sequelize\\s+db:migrate|flyway|liquibase)\\b"
+reason = "migração de banco"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "\\b(docker|docker-compose|podman|nerdctl)\\b"
+reason = "docker/containers"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "\\b(curl|wget)\\b[^\\n]*(\\s-o\\s|\\s-O\\b|--output|--remote-name|\\s>>?\\s)|\\bwget\\b"
+reason = "download/escrita via rede"
+
+[[rules]]
+action = "deny"
+name = "(bash|shell|command|terminal)"
+description = "\\bgit\\s+push\\b|\\bgit\\s+reset\\s+--hard\\b|\\bgit\\s+clean\\s+-[A-Za-z]*[fdx]|\\bgit\\s+checkout\\s+--\\s|\\bgit\\s+rebase\\b"
+reason = "operação destrutiva ou que publica no remoto"
+
+# ------------------------------------------------------------------ allow
+# Leitura e inspeção. O cwd fora das raízes permitidas cai em notify mesmo aqui.
+
+[[rules]]
+action = "allow"
+name = "(bash|shell|command|terminal)"
+description = "^\\s*(ls|pwd|cat|head|tail|rg|grep|wc|file|stat|sed\\s+-n|git\\s+(status|log|diff|show|add|commit))\\b"
+reason = "leitura/inspeção no worktree do próprio agente"
+
+[[rules]]
+action = "allow"
+name = "(webfetch|websearch|web_search|web-search|fetch|web)"
+reason = "leitura web"
+
+[[rules]]
+action = "allow"
+name = "(external_directory|external-directory|external_dir|externaldir)"
+description = "(^|[\\s\"'=(])(~/\\.local/share/opencode/tool-output|/\\.local/share/opencode/tool-output|/tmp/|/private/(tmp|var/folders)/|/Applications/Paseo\\.app/Contents/Resources)"
+reason = "diretório externo de trabalho/leitura"
+
+# ------------------------------------------------------------------ notify
+# Explícito só para documentar: pergunta ao usuário nunca é autoaprovada.
+
+[[rules]]
+action = "notify"
+name = "(question|ask|prompt)"
+reason = "pergunta ao usuário"

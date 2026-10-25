@@ -48,6 +48,35 @@ ai-memory run codex          # continuar de onde o último agente parou (termina
 ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 ```
 
+## Vigia dos agentes do Paseo
+
+O `paseo_watchdog` roda a cada 30 s pelo LaunchAgent e responde a pergunta "algum agente precisa de mim agora?". Ele lê `paseo ls -a --json`, `inspect`, `permit ls` e os agendamentos, e calcula o estado real de cada agente:
+
+| Estado | Critério |
+|---|---|
+| `aguardando_aprovacao` | pedido em `permit ls` pendente há mais de 2 min |
+| `parado` | `running` com `UpdatedAt` do inspect há mais de 10 min (sem atividade) |
+| `erro` | status `error` (mostra a mensagem, inclusive limite de uso com horário) ou `closed` no meio de uma execução |
+| `concluido` | `idle`/`closed` normal |
+| `trabalhando` | `running` com atividade recente |
+
+Quando algum agente entra em `aguardando_aprovacao`, `parado` ou `erro`, chega uma notificação do macOS. A mesma notificação não repete por 10 min.
+
+A autoaprovação segue `config/paseo-watchdog-policy.toml`, versionada no repo. As regras são ordenadas e valem por nome da ferramenta e regex da descrição. `allow` só aprova leitura/inspeção dentro de `~/.paseo/worktrees` ou de um repo listado em `allowed_roots`; `.env`, segredos, backups, planilhas, `rm -rf`, instalação de pacotes, migração, docker e download com escrita caem em `deny` (nunca aprovam sozinhos). Perguntas e todo o resto viram `notify`. Projeto restrito em `config/ai-os-memory.toml` nunca é autoaprovado.
+
+Para ver o estado e desligar:
+
+```sh
+cat ~/.local/state/ai-os/agentes.json          # retrato atual (status, tempo, motivo)
+tail -n 40 ~/.local/state/ai-os/watchdog.log   # eventos (aprovações, avisos, erros)
+~/Workspace/tools/workflow-ai/scripts/paseo_watchdog.py --dry-run   # simula sem aprovar nem notificar
+./install.sh --watchdog                        # instala/atualiza o LaunchAgent
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.felipe.ai-os.paseo-watchdog.plist   # desliga
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.felipe.ai-os.paseo-watchdog.plist  # religa
+```
+
+O vigia só aprova o que a política permitir. Aprovar ou negar o resto continua sendo decisão sua, pelo app ou por `paseo permit allow|deny`.
+
 ## Memória
 
 O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com backup (Python >= 3.11; `--no-mcp` pula essa configuração).

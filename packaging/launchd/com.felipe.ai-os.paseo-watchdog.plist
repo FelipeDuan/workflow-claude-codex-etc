@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Modelo do LaunchAgent do vigia do Paseo. O install.sh (--watchdog) substitui
+  __PYTHON__, __SCRIPT__ e __HOME__, instala em ~/Library/LaunchAgents/ e faz
+  launchctl bootout + bootstrap. Não editar o arquivo instalado à mão.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.felipe.ai-os.paseo-watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>__SCRIPT__</string>
+        <string>--once</string>
+    </array>
+
+    <!-- launchd não herda o PATH do fish; o paseo fica em /opt/homebrew/bin. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/ai-os/paseo-watchdog.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/ai-os/paseo-watchdog.err.log</string>
+</dict>
+</plist>

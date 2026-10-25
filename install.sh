@@ -40,6 +40,7 @@ UPDATE=0
 THIRD_PARTY=1
 MCP=1
 HARDEN=0
+WATCHDOG=0
 ONLY_CLAUDE=0
 ONLY_CODEX=0
 ONLY_OPENCODE=0
@@ -80,6 +81,10 @@ Opções:
                      settings.json. Codex: env em shell_environment_policy.set
                      e ~/.codex/rules/workflow-ai.rules. Merge não destrutivo,
                      com backup; requer python3 (tomllib, >= 3.11, no Codex).
+  --watchdog         Opt-in. Instala/atualiza o LaunchAgent do vigia do Paseo
+                     (~/Library/LaunchAgents/com.felipe.ai-os.paseo-watchdog.plist,
+                     a cada 30 s, logs em ~/Library/Logs/ai-os/). Requer
+                     python3 >= 3.11; faz backup e launchctl bootout + bootstrap.
   -v, --verbose      Lista também o que já estava correto.
   -h, --help         Mostra esta ajuda.
 
@@ -97,6 +102,7 @@ while [ $# -gt 0 ]; do
         --no-third-party) THIRD_PARTY=0 ;;
         --no-mcp) MCP=0 ;;
         --harden) HARDEN=1 ;;
+        --watchdog) WATCHDOG=1 ;;
         -v|--verbose) VERBOSE=1 ;;
         -h|--help) usage; exit 0 ;;
         --only|--only=*)
@@ -786,18 +792,25 @@ setup_harden() {
     fi
 }
 
-setup_memory_autoenable() {
-    local candidate memory_python=""
-    step "Memória automática por projeto (SessionStart)"
+# Imprime o caminho de um python3 com tomllib (>= 3.11); falha se não houver.
+find_python_tomllib() {
+    local candidate
     # O macOS pode oferecer python3 3.9 antes de uma instalação atual no PATH.
     for candidate in python3 python3.14 python3.13 python3.12 python3.11 \
         /opt/homebrew/bin/python3 /usr/local/bin/python3 "$HOME/.local/bin/python3.12"; do
         if command -v "$candidate" >/dev/null 2>&1 && \
             "$candidate" -c 'import tomllib' >/dev/null 2>&1; then
-            memory_python="$(command -v "$candidate")"
-            break
+            command -v "$candidate"
+            return 0
         fi
     done
+    return 1
+}
+
+setup_memory_autoenable() {
+    local memory_python=""
+    step "Memória automática por projeto (SessionStart)"
+    memory_python="$(find_python_tomllib || true)"
     if [ -z "$memory_python" ]; then
         warn "SessionStart da memória requer Python >= 3.11 (tomllib); hook não configurado"
         return 0
@@ -808,6 +821,55 @@ setup_memory_autoenable() {
     if want_target codex; then
         harden_merge memory-session-start "$CODEX_DIR/hooks.json" "$REPO_DIR/scripts/ai_memory_autoenable.py" "$memory_python"
         say "  Codex: depois de instalar, abra /hooks → trust para confiar no novo SessionStart."
+    fi
+}
+
+# LaunchAgent do vigia do Paseo: opt-in, idempotente, com backup. O plist é
+# gerado a partir de packaging/launchd/ com o python e o caminho do repo atuais.
+setup_watchdog() {
+    local src="$REPO_DIR/packaging/launchd/com.felipe.ai-os.paseo-watchdog.plist"
+    local script="$REPO_DIR/scripts/paseo_watchdog.py"
+    local dst="$HOME/Library/LaunchAgents/com.felipe.ai-os.paseo-watchdog.plist"
+    local logdir="$HOME/Library/Logs/ai-os"
+    local python_bin plist changed=0 domain
+    step "Vigia do Paseo (LaunchAgent, --watchdog)"
+    if [ ! -f "$src" ] || [ ! -f "$script" ]; then
+        warn "arquivos do vigia ausentes ($src / $script); LaunchAgent não instalado"
+        return 0
+    fi
+    python_bin="$(find_python_tomllib || true)"
+    if [ -z "$python_bin" ]; then
+        warn "vigia do Paseo requer Python >= 3.11 (tomllib); LaunchAgent não instalado"
+        return 0
+    fi
+    plist="$STAGE/paseo-watchdog.plist"
+    sed -e "s|__PYTHON__|$python_bin|g" \
+        -e "s|__SCRIPT__|$script|g" \
+        -e "s|__HOME__|$HOME|g" "$src" > "$plist"
+    if [ ! -d "$logdir" ]; then
+        did "diretório $logdir"
+        [ "$DRY_RUN" = 1 ] || mkdir -p "$logdir"
+    fi
+    if [ -f "$dst" ] && [ ! -L "$dst" ] && cmp -s "$plist" "$dst"; then
+        ok "$dst"
+    else
+        changed=1
+        install_file "$plist" "$dst"
+    fi
+    if [ "$DRY_RUN" = 1 ]; then
+        say "  [dry-run] launchctl bootout gui/$(id -u) $dst (se carregado) + bootstrap"
+        return 0
+    fi
+    if [ "$changed" = 0 ]; then
+        ok "LaunchAgent já carregado (conteúdo igual)"
+        return 0
+    fi
+    domain="gui/$(id -u)"
+    launchctl bootout "$domain" "$dst" >/dev/null 2>&1 || true
+    if launchctl bootstrap "$domain" "$dst" >/dev/null 2>&1; then
+        say "  launchctl bootstrap $domain (vigia a cada 30 s)"
+    else
+        warn "launchctl bootstrap falhou para $dst; rode: launchctl bootstrap $domain $dst"
     fi
 }
 
@@ -887,5 +949,6 @@ fi
 if want_target claude || want_target codex; then setup_memory_autoenable; fi
 [ "$MCP" = 1 ] && setup_mcp
 [ "$HARDEN" = 1 ] && setup_harden
+[ "$WATCHDOG" = 1 ] && setup_watchdog
 
 report
