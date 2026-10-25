@@ -198,3 +198,24 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - **Teste de recuperação (restart do daemon):** o agente foi encerrado no meio da tarefa (I-21); o trabalho ficou no worktree (diff + testes passando) e no ai-memory. Retomada manual possível; automática não.
 - Claude-Mem: transcript-watch do Codex desligado (I-22).
 - Fechamento do M0: falta só testar o Claude no Paseo esperando o reset do limite (depende de bater o limite de verdade; registrar quando acontecer).
+
+## ESTADO ATUAL E PENDÊNCIAS (fonte única, atualizado em 25/10/2026). Ler isto primeiro
+**Em andamento**
+- SGG fase 2 (repo `sgg-v3-docs`, branch `analise/2026-10`, sem push): 01–07 prontos e integrados. Rodando: OpenCode P5 (08 concorrentes). Agendado: Codex P4 (09 visão de produto) via `paseo schedule` às 17:45 de 25/10 (id 440e6b27, worktree `~/.paseo/worktrees/manual/sgg-fase2-p4`), que é o primeiro teste real de retomada agendada.
+- Workflow: OpenCode S1 escrevendo `docs/ai-os/AGENDAMENTO-E-RETOMADA.md`.
+
+**Aprovado pelo Felipe, a fazer em seguida**
+1. Permissões do OpenCode: liberar webfetch e leitura de `~/.local/share/opencode/tool-output/*` (depois que P5/S1 terminarem, porque exige reiniciar o serviço).
+2. Vigia `paseo_watchdog` (LaunchAgent): detecta aprovação pendente >2 min, agente sem atividade >10 min, erro/limite e falha de agendamento; política de autoaprovação versionada; notificação do macOS; estado em `~/.local/state/ai-os/agentes.json`. Implementação por agente, com testes.
+3. quota-guard mostra o status do Paseo na barra do Claude (`Paseo: N rodando · M aguardando`).
+4. Regra: trabalho longo e autônomo com o coordenador DENTRO do Paseo (notificações nativas).
+
+**Aguardando decisão do Felipe**
+- OpenRouter/níveis de provedores (proposta feita; item 1 documental sem custo aguarda o ok).
+- Pauta de decisões do SGG (`analise-2026-10/04-pauta-de-decisoes.md`) e o plano urgente da v2 (`05`). **Verificar no servidor real o `--accept-data-loss` do entrypoint da v2.**
+- Conferir se o treino está desligado nas contas Claude/ChatGPT; criar os perfis no Paseo.
+
+**Depois**
+- SGG fase 3: revisão de telas/fluxos com as skills de design (Claude, depois do reset de segunda); corrigir a spec com as decisões; preparar a fundação.
+- M1: comando de roteamento consultivo + telemetria automática. M3: retomada/failover (usar AGENDAMENTO-E-RETOMADA). A/B das skills de design. Backlog: Claude Code Setup, Serena, Headroom, Task Observer.
+- Revisões marcadas: desligar a captura do Claude-Mem (≈ meados de novembro); levar as sugestões à Bea.
