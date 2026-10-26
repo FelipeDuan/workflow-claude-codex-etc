@@ -1,6 +1,6 @@
 # ADR-0004: Gestão de contexto por sessões curtas
 
-**Status:** aceita em 26/10/2026, provisória até o teste manual de continuidade passar. Revisar se o teste falhar.
+**Status:** aceita em 26/10/2026. Teste manual de continuidade aprovado no mesmo dia (ver `../GESTAO-CONTEXTO.md`).
 
 ## Contexto
 

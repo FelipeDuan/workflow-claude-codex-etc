@@ -205,10 +205,10 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - `paseo schedule` validado de verdade: P4/W1/W4 dispararam sozinhos depois do reset do Codex.
 - Vigia `paseo_watchdog` instalado como LaunchAgent (`./install.sh --watchdog`): notifica no macOS, detecta fantasmas (I-26), parados sem entrega (I-25), perguntas, modelo proibido em projeto restrito; atualiza `quota/codex.json` fora do sandbox (I-06). Estado em `~/.local/state/ai-os/agentes.json`. Os monitores provisórios foram aposentados.
 - Permissões do OpenCode ampliadas (web, tool-output, /tmp, leitura do SGG; edição de v1/v2 negada).
-- Gestão de contexto (26/10): ADR-0004 aceito (provisório) e protocolo em `GESTAO-CONTEXTO.md`, com inventário Codex, pesquisa e revisão GPT-6-Astra. Hub aponta para o checkout canônico `workflow-ai-ai-os`. `paseo start` testado sem o app (I-28). Incidentes I-28 a I-31.
+- Gestão de contexto (26/10): ADR-0004 aceito e protocolo em `GESTAO-CONTEXTO.md`, com inventário Codex, pesquisa e revisão GPT-6-Astra. Hub aponta para o checkout canônico `workflow-ai-ai-os`. `paseo start` testado sem o app (I-28). Incidentes I-28 a I-31.
 
 **A fazer (aprovado)**
-0. Gestão de contexto: teste manual de continuidade (decisão + pendência; queda sem handoff; pendência de outra frente preservada, lido a partir do hub). Só se passar: skill `sessao` e seção "Compact Instructions" no CLAUDE.md do hub.
+0. Gestão de contexto: teste manual de continuidade passou (26/10). Em andamento: skill `sessao` e seção "Compact Instructions" no CLAUDE.md do hub.
 1. SGG onda 2: síntese de produto (módulos, fluxos, telas, métricas, regras de negócio, roadmap) a partir de 01–14; coordenação do Codex + revisão de outra família.
 2. SGG onda 3: design com as skills de design (Claude, franquia resetada) e arquitetura/DevEx da v3 nova.
 3. OpenRouter: configuração pronta sem chave + níveis de provedores (depende da chave do Felipe para ativar).

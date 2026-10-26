@@ -1,6 +1,6 @@
 # Gestão de contexto: sessões curtas sem perder estado
 
-Status: aprovado em 26/10/2026 (ADR-0004). Em validação: o teste manual de continuidade (item 1 da implementação) ainda não rodou.
+Status: aprovado em 26/10/2026 (ADR-0004). Teste manual de continuidade aprovado em 26/10/2026; resultado na seção "Resultado do teste".
 
 ## Problema
 
@@ -75,6 +75,18 @@ A coexistência com o Claude-Mem segue as proteções do I-14 e do I-22. O proto
 4. Opcional: hook `SessionStart` que avisa ao abrir `tools/workflow-ai/` fora do worktree (I-31).
 
 Fora de escopo por enquanto: ligar consolidação por LLM no ai-memory (custo, latência e risco de memória envenenada, ver [Unit 42](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/)) e extração automática de ADR.
+
+## Resultado do teste (26/10/2026)
+
+Agentes Codex novos (gpt-6-luna), sem acesso ao chat original:
+
+| Caso | Resultado |
+|---|---|
+| Decisão + pendência, lido a partir do hub | Passou: as 4 respostas certas, com arquivo:linha, lidas no checkout canônico |
+| Queda sem handoff | Passou com ressalva: reconstruiu a sessão `d3bee63b` (tarefas, decisões, commits, pendência) por `memory_briefing` + `memory_read_session_observations`. Não viu o trabalho feito antes de a sessão entrar num projeto habilitado (`~/Workspace` não tem marcador) |
+| Pendência de outra frente | Passou: o diff do STATUS só adicionou linhas; as pendências do SGG continuaram |
+
+Lição: só é capturado o que acontece dentro de um projeto com `.ai-memory.toml`. Para tarefas soltas (ex.: manutenção do Mac), abra a sessão num projeto habilitado ou registre o resultado no STATUS ao final.
 
 ## Decisões do Felipe (26/10/2026)
 
