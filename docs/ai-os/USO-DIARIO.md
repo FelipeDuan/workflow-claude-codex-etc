@@ -98,7 +98,7 @@ O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com b
 
 ## Sessões e contexto (ADR-0004)
 
-Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos ADRs e no ai-memory. Protocolo completo e contingências: `GESTAO-CONTEXTO.md`.
+Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos ADRs e no ai-memory. Protocolo completo e contingências: `GESTAO-CONTEXTO.md`. A skill `sessao` executa cada etapa: peça "abrir sessão", "encerrar sessão", "recuperar sessão que caiu" ou "destilar este chat".
 
 - **Abrir:** o handoff chega sozinho. Leia o STATUS do checkout canônico e confira a branch (`git worktree list`).
 - **Durante:** registre cada decisão na hora, como linha no STATUS ou rascunho de ADR. Mande exploração pesada para subagente.
