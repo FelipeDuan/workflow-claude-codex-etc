@@ -199,23 +199,21 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - Claude-Mem: transcript-watch do Codex desligado (I-22).
 - Fechamento do M0: falta só testar o Claude no Paseo esperando o reset do limite (depende de bater o limite de verdade; registrar quando acontecer).
 
-## ESTADO ATUAL E PENDÊNCIAS (fonte única, atualizado em 25/10/2026). Ler isto primeiro
-**Em andamento**
-- SGG fase 2 (repo `sgg-v3-docs`, branch `analise/2026-10`, sem push): 01–07 prontos e integrados. Rodando: OpenCode P5 (08 concorrentes). Agendado: Codex P4 (09 visão de produto) via `paseo schedule` às 17:45 de 25/10 (id 440e6b27, worktree `~/.paseo/worktrees/manual/sgg-fase2-p4`), que é o primeiro teste real de retomada agendada.
-- Workflow: OpenCode S1 escrevendo `docs/ai-os/AGENDAMENTO-E-RETOMADA.md`.
+## ESTADO ATUAL E PENDÊNCIAS (fonte única, atualizado em 26/10/2026). Ler isto primeiro
+**Concluído desde 25/10**
+- SGG onda 1 completa: `sgg-v3-docs`, branch `analise/2026-10` (sem push), documentos 01–14 (estado v1/v2, auditoria v3, rastreabilidade, pauta de decisões, plano urgente v2, revalidação + NFR, itens ausentes, concorrentes, visão de produto, programa, legal, necessidades, integrações, dados/analytics).
+- `paseo schedule` validado de verdade: P4/W1/W4 dispararam sozinhos depois do reset do Codex.
+- Vigia `paseo_watchdog` instalado como LaunchAgent (`./install.sh --watchdog`): notifica no macOS, detecta fantasmas (I-26), parados sem entrega (I-25), perguntas, modelo proibido em projeto restrito; atualiza `quota/codex.json` fora do sandbox (I-06). Estado em `~/.local/state/ai-os/agentes.json`. Os monitores provisórios foram aposentados.
+- Permissões do OpenCode ampliadas (web, tool-output, /tmp, leitura do SGG; edição de v1/v2 negada).
 
-**Aprovado pelo Felipe, a fazer em seguida**
-1. Permissões do OpenCode: liberar webfetch e leitura de `~/.local/share/opencode/tool-output/*` (depois que P5/S1 terminarem, porque exige reiniciar o serviço).
-2. Vigia `paseo_watchdog` (LaunchAgent): detecta aprovação pendente >2 min, agente sem atividade >10 min, erro/limite e falha de agendamento; política de autoaprovação versionada; notificação do macOS; estado em `~/.local/state/ai-os/agentes.json`. Implementação por agente, com testes.
-3. quota-guard mostra o status do Paseo na barra do Claude (`Paseo: N rodando · M aguardando`).
-4. Regra: trabalho longo e autônomo com o coordenador DENTRO do Paseo (notificações nativas).
+**A fazer (aprovado)**
+1. SGG onda 2: síntese de produto (módulos, fluxos, telas, métricas, regras de negócio, roadmap) a partir de 01–14; coordenação do Codex + revisão de outra família.
+2. SGG onda 3: design com as skills de design (Claude, franquia resetada) e arquitetura/DevEx da v3 nova.
+3. OpenRouter: configuração pronta sem chave + níveis de provedores (depende da chave do Felipe para ativar).
 
-**Aguardando decisão do Felipe**
-- OpenRouter/níveis de provedores (proposta feita; item 1 documental sem custo aguarda o ok).
-- Pauta de decisões do SGG (`analise-2026-10/04-pauta-de-decisoes.md`) e o plano urgente da v2 (`05`). **Verificar no servidor real o `--accept-data-loss` do entrypoint da v2.**
-- Conferir se o treino está desligado nas contas Claude/ChatGPT; criar os perfis no Paseo.
+**Aguardando o Felipe**
+- Perfis na UI do Paseo; notificações do Paseo e do Editor de Script permitidas; conferir o treino desligado nas contas.
+- Decisões do SGG: pauta 04, seis decisões de integrações (13 §13), posicionamento (08/09).
 
 **Depois**
-- SGG fase 3: revisão de telas/fluxos com as skills de design (Claude, depois do reset de segunda); corrigir a spec com as decisões; preparar a fundação.
-- M1: comando de roteamento consultivo + telemetria automática. M3: retomada/failover (usar AGENDAMENTO-E-RETOMADA). A/B das skills de design. Backlog: Claude Code Setup, Serena, Headroom, Task Observer.
-- Revisões marcadas: desligar a captura do Claude-Mem (≈ meados de novembro); levar as sugestões à Bea.
+- M1 (roteamento consultivo + telemetria automática), A/B das skills de design, backlog (Claude Code Setup, Serena, Headroom, Task Observer), desligar a captura do Claude-Mem (meados de novembro), sugestões à Bea.
