@@ -208,7 +208,7 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - Gestão de contexto (26/10): ADR-0004 aceito e protocolo em `GESTAO-CONTEXTO.md`, com inventário Codex, pesquisa e revisão GPT-6-Astra. Hub aponta para o checkout canônico `workflow-ai-ai-os`. `paseo start` testado sem o app (I-28). Incidentes I-28 a I-31.
 
 **A fazer (aprovado)**
-0. Gestão de contexto: teste de continuidade passou; skill `sessao` criada e "Compact Instructions" no hub (26/10). Merge para `feat/design-workflow-v1` aprovado. O merge não ativa a skill, porque os symlinks são por skill (`install.sh`); depois dele, é preciso cadastrar `sessao`. Pendente: remedir o consumo em ~2 semanas (linha de base em `GESTAO-CONTEXTO.md`) e trazer o script de medição para o repo.
+0. Gestão de contexto: teste de continuidade passou; skill `sessao` criada e "Compact Instructions" no hub (26/10). Merge (fast-forward) em `feat/design-workflow-v1` feito e skill ativada com symlink em `~/.claude/skills` e `~/.agents/skills` (26/10). Ainda falta observar o ciclo encerrar → handoff → sessão nova no primeiro uso real. Pendente: remedir o consumo em ~2 semanas (linha de base em `GESTAO-CONTEXTO.md`) e trazer o script de medição para o repo.
 1. SGG onda 2: síntese de produto (módulos, fluxos, telas, métricas, regras de negócio, roadmap) a partir de 01–14; coordenação do Codex + revisão de outra família.
 2. SGG onda 3: design com as skills de design (Claude, franquia resetada) e arquitetura/DevEx da v3 nova.
 3. OpenRouter: configuração pronta sem chave + níveis de provedores (depende da chave do Felipe para ativar).
