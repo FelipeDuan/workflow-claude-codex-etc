@@ -2,7 +2,7 @@
 
 ## Começar
 
-1. Abra o **Paseo** (app). Ele sobe o daemon sozinho em `127.0.0.1:6767`.
+1. Abra o **Paseo** (app). Ele sobe o daemon sozinho em `127.0.0.1:6767`. Fechar o app derruba esse daemon (I-28). Para orquestrar sem o app, rode `paseo start`: o daemon sobe solto do terminal (filho do `launchd`) e continua vivo se o terminal fechar. Ele não sobe sozinho no login; depois de reiniciar o Mac, abra o app ou rode `paseo start` de novo. Confira com `paseo daemon status` (`localDaemon: running`).
 2. Escolha o projeto e crie a tarefa com o provedor certo (ver "Quem faz o quê").
 3. Para trabalho em paralelo, peça um **worktree novo** por agente que vai escrever.
 4. Aprove permissões pelo app, ou pela CLI: `paseo permit ls` e `paseo permit allow <agente> <id>`.
