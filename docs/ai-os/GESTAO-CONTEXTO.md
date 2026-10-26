@@ -1,6 +1,6 @@
-# Proposta: protocolo de gestão de contexto
+# Gestão de contexto: sessões curtas sem perder estado
 
-Status: aprovada pelo Felipe em 26/10/2026, depois da revisão do GPT-6-Astra ("aprovar com mudanças", já incorporadas). As decisões estão no fim do documento. Implementação em andamento.
+Status: aprovado em 26/10/2026 (ADR-0004). Em validação: o teste manual de continuidade (item 1 da implementação) ainda não rodou.
 
 ## Problema
 

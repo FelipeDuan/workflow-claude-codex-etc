@@ -96,6 +96,15 @@ O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com b
 - Ao terminar uma sessão, o agente deixa uma nota de estado; o próximo recebe o handoff sozinho.
 - Algo antigo que o ai-memory não sabe: a skill `memory-backfill` busca no Claude-Mem, confere e grava.
 
+## Sessões e contexto (ADR-0004)
+
+Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos ADRs e no ai-memory. Protocolo completo e contingências: `GESTAO-CONTEXTO.md`.
+
+- **Abrir:** o handoff chega sozinho. Leia o STATUS do checkout canônico e confira a branch (`git worktree list`).
+- **Durante:** registre cada decisão na hora, como linha no STATUS ou rascunho de ADR. Mande exploração pesada para subagente.
+- **Encerrar** quando: o objetivo acabar, o assunto mudar, houver mais de duas correções falhas no mesmo problema, vier uma pausa longa ou o contexto passar de ~200k tokens (alerta experimental). Antes de sair, atualize só a sua frente no STATUS e escreva a nota de estado.
+- **Sessão caiu sem handoff:** `memory_briefing` → `memory_read_session_observations` da sessão → `git status`/`diff`/`log` → STATUS.
+
 ## Configuração local do Paseo (já aplicada)
 
 ```sh
