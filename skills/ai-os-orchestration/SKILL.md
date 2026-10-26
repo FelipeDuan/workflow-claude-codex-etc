@@ -17,7 +17,7 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 
 1. Run `paseo daemon status`. If unavailable, fall back to native subagents and tell Felipe which provider or isolation requirements cannot be met.
 2. Check whether the project matches `[restricted].paths` in `~/Workspace/tools/workflow-ai/config/ai-os-memory.toml` (including its main checkout for worktrees), or has a SessionStart restriction warning. File presence alone does not make a project restricted. Such projects permit only `allowed_models`, including fallback and reviewers. Match Paseo's `opencode/opencode/<model>` against policy ID `opencode/<model>`. Claude/Codex mean subscription harnesses, not gateway APIs.
-3. Read `~/.local/state/ai-os/quota/claude.json` and run `python3 ~/Workspace/tools/workflow-ai/scripts/quota_codex.py`. Missing, stale, or failed readings mean `unknown`; never invent percentages. If the sandbox blocks the sensor, request a real reading from the orchestrator (I-06).
+3. Read `~/.local/state/ai-os/quota/claude.json` and `codex.json` in that directory; the watchdog updates Codex outside the sandbox every 5 min (I-06). Missing, stale, or failed readings mean `unknown`; never invent percentages.
 4. Apply ADR-0002's quality floor, then choose the lowest effective coordination and quota cost:
 
 | Risk | Executor | Verification |
@@ -48,7 +48,11 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 
 - In a terminal, use `paseo wait <id>` and `paseo permit ls`. `paseo ls` can report `running` while the agent waits for permission (I-16).
 - Approve only safe, task-scoped requests inside the assigned worktree, when the harness permits you to approve. Send everything else to Felipe; never bypass a parent approval gate.
-- Check concrete progress when diagnosing a stall: created session, changed artifacts, test output. A live process does not prove progress (I-01).
+- Check concrete progress: session, files, tests and commits. Treat `idle` without a new commit or changed files as suspicious (I-01, I-25).
+- A `question` request needs a human answer; notify immediately.
+- Keep the OpenCode service running while agents are active; restarting loses permission handlers and creates phantom requests (I-26).
+- Prefer `paseo schedule` to resume after a usage limit; tested on 25/10/2026.
+- Run one heavy Codex agent at a time (I-23).
 
 ## 5. Verify, integrate, and clean up
 

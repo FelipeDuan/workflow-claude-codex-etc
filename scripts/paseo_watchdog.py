@@ -20,8 +20,8 @@ ls/logs`, e detecta:
   concluido             "idle"/"closed" normal, arquivado é ignorado.
 
 Autoaprovação: primeira regra que casar em config/paseo-watchdog-policy.toml.
-`deny` nunca aprova; `allow` só aprova com cwd em allowed_roots e fora de
-projeto restrito (config/ai-os-memory.toml e marcador .ai-memory.toml). O resto
+`deny` nunca aprova; `allow` só aprova com cwd em allowed_roots e modelo
+permitido quando o projeto é restrito (config/ai-os-memory.toml). O resto
 vira `notify`. Nada é autoaprovado sem regra.
 
 Notificação: `osascript -e 'display notification ...'`, no máximo uma vez a
@@ -44,6 +44,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -61,6 +62,7 @@ DEDUP_MIN = 10
 CMD_TIMEOUT = 20
 DESC_LIMIT = 200
 STATE_KEEP_DAYS = 7
+QUOTA_INTERVAL_MIN = 5
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _SECRET = re.compile(
@@ -70,6 +72,8 @@ _SECRET = re.compile(
 _STATUS_PRIORITY = {
     "aguardando_aprovacao": 0,
     "erro": 1,
+    "parado_sem_entrega": 2,
+    "pedido_fantasma": 0,
     "parado": 2,
     "trabalhando": 3,
     "concluido": 4,
@@ -82,6 +86,10 @@ class PaseoError(RuntimeError):
 
 class PolicyError(RuntimeError):
     """Política ausente ou inválida; nada deve ser aprovado."""
+
+
+class PhantomPermission(PaseoError):
+    """O processo perdeu o handler deste pedido."""
 
 
 @dataclass
@@ -171,6 +179,10 @@ def run_paseo(args: list[str], check: bool = True) -> str:
         if check:
             raise PaseoError(f"{' '.join(cmd)}: {exc}") from exc
         return ""
+    if args[:2] in (["permit", "allow"], ["permit", "deny"]) and re.search(
+        r"handler_error|\b404\b|unconfirmed", completed.stdout + completed.stderr, re.I
+    ):
+        raise PhantomPermission(_clean(completed.stdout + completed.stderr))
     if check and completed.returncode != 0:
         detail = _clean(completed.stderr or completed.stdout)
         raise PaseoError(f"{' '.join(cmd)}: rc={completed.returncode} {detail}")
@@ -233,6 +245,100 @@ def load_restricted_roots(path: Path) -> list[Path]:
     return [Path(os.path.expanduser(str(item))).resolve() for item in paths if str(item).strip()]
 
 
+def load_allowed_models(path: Path) -> list[str]:
+    try:
+        with path.open("rb") as handle:
+            values = tomllib.load(handle).get("restricted", {}).get("allowed_models", [])
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise PolicyError(f"modelos restritos {path}: {exc}") from exc
+    if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+        raise PolicyError("allowed_models precisa ser uma lista de modelos")
+    return values
+
+
+def _git(cwd: str, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-c", "core.fsmonitor=false", "--no-optional-locks", "-C", cwd, *args], capture_output=True,
+            text=True, timeout=CMD_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _main_checkout(cwd: Path) -> Path | None:
+    # Um worktree ligado tem .git como arquivo; não execute Git em toda leitura.
+    for parent in (cwd, *cwd.parents):
+        if (parent / ".git").is_file():
+            common = _git(str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir")
+            if not common:
+                raise PolicyError("origem do worktree indisponível")
+            return Path(common.strip()).parent
+        if (parent / ".git").is_dir():
+            return parent
+    return None
+
+
+def model_allowed(label: str, allowed_models: list[str]) -> bool:
+    normalized = label.lower().strip()
+    while normalized.startswith("opencode/opencode/"):
+        normalized = normalized.removeprefix("opencode/")
+    return any(
+        normalized.startswith(item) if item in {"claude", "codex"} else normalized == item
+        for item in allowed_models
+    )
+
+
+def is_restricted(cwd: str, restricted: list[Path]) -> bool:
+    if not cwd:
+        return False
+    path = Path(os.path.expanduser(cwd)).resolve()
+    main = _main_checkout(path)
+    return any(
+        any(_within(candidate, root) for root in restricted) or _marker_restricted(candidate)
+        for candidate in (path, main) if candidate is not None
+    )
+
+
+def no_delivery(inspect: dict) -> bool:
+    """Só conclui ausência de entrega quando todas as consultas Git confirmam."""
+    created = _parse_ts(_field(inspect, "CreatedAt", "createdAt"))
+    cwd = str(_field(inspect, "Cwd", "cwd"))
+    if not cwd or created is None:
+        return False
+    path = Path(cwd)
+    if not any((parent / ".git").is_file() for parent in (path, *path.parents)):
+        return False
+    git_dir = _git(cwd, "rev-parse", "--absolute-git-dir")
+    common = _git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not git_dir or not common or git_dir.strip() == common.strip():
+        return False
+    changes = _git(cwd, "status", "--porcelain", "--untracked-files=all")
+    commits = _git(cwd, "log", "--since-as-filter=" + _iso(created), "--format=%H", "-1")
+    return changes is not None and not changes.strip() and commits is not None and not commits.strip()
+
+
+def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> None:
+    last = _parse_ts(state.get("quota_checked_at"))
+    if last is not None and timedelta(0) <= now - last < timedelta(minutes=QUOTA_INTERVAL_MIN):
+        return
+    if dry_run:
+        print("[dry-run] atualizaria a franquia: python3 scripts/quota_codex.py --write")
+        return
+    state["quota_checked_at"] = _iso(now)
+    try:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "quota_codex.py"), "--write"],
+            capture_output=True, text=True, timeout=CMD_TIMEOUT + 10,
+        )
+        payload = parse_json(result.stdout)
+        if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
+            log_event(log_path, now, "quota_error", detalhe="sensor sem leitura válida")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        log_event(log_path, now, "quota_error", detalhe="falha ao atualizar franquia")
+
+
 def _within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -245,15 +351,16 @@ def _marker_restricted(cwd: Path) -> bool:
     """Marcador .ai-memory.toml entre o cwd e a raiz do usuário."""
     home = Path.home().resolve()
     current = cwd
-    for _ in range(8):
+    while True:
         marker = current / ".ai-memory.toml"
         if marker.is_file():
             try:
                 with open(marker, "rb") as handle:
                     data = tomllib.load(handle)
-            except (OSError, tomllib.TOMLDecodeError):
-                return False
-            return str(data.get("workspace", "")).lower() == "restrito"
+            except (OSError, tomllib.TOMLDecodeError) as exc:
+                raise PolicyError(f"marcador ilegível: {marker}") from exc
+            if str(data.get("workspace", "")).lower() == "restrito":
+                return True
         if current == home or current.parent == current:
             break
         current = current.parent
@@ -268,11 +375,6 @@ def cwd_allowed(cwd: str, policy: Policy, restricted: list[Path]) -> tuple[bool,
         resolved = path.resolve()
     except OSError:
         resolved = path.absolute()
-    for root in restricted:
-        if _within(resolved, root):
-            return False, "projeto restrito (config/ai-os-memory.toml)"
-    if _marker_restricted(resolved):
-        return False, "projeto restrito (.ai-memory.toml)"
     for root in policy.allowed_roots:
         if _within(resolved, root):
             return True, str(root)
@@ -299,7 +401,60 @@ def decide(policy: Policy, name: str, description: str, cwd: str, restricted: li
     allowed, why = cwd_allowed(cwd, policy, restricted)
     if not allowed:
         return "notify", f"{rule.reason or 'allow'}, mas {why}"
+    if not rule.name or not rule.name.fullmatch(name):
+        return "notify", "nome de ferramenta ambíguo; decisão humana"
+    if re.search(r"external.?dir", name, re.I):
+        return "notify", "acesso a diretório externo exige confirmar o caminho completo"
+    if re.search(r"bash|shell|command|terminal", name, re.I) and not _safe_shell(description, cwd):
+        return "notify", "comando opaco, composto ou fora da inspeção segura; decisão humana"
+    if re.search(r"bash|shell|command|terminal", name, re.I):
+        words = shlex.split(description)
+        canonical = [str((Path(cwd) / Path(word).expanduser()).resolve())
+                     for word in words[1:] if not word.startswith("-")]
+        normalized = " ".join(words + canonical)
+        normalized_rule = match_rule(policy, name, normalized)
+        if normalized_rule and normalized_rule.action == "deny":
+            return "deny", normalized_rule.reason
     return "allow", rule.reason or "leitura/inspeção"
+
+
+def _safe_shell(description: str, cwd: str) -> bool:
+    # Subconjunto deliberadamente pequeno: texto opaco nunca prova segurança (I-24).
+    if re.search(r"[;&|<>`$(){}\\*?\[\]\n\r\x00-\x1f]", description):
+        return False
+    try:
+        words = shlex.split(description)
+    except ValueError:
+        return False
+    if not words:
+        return False
+    command, *args = words
+    if command == "git":
+        # diff/show podem executar external diff/textconv configurados no repo.
+        return bool(args) and args[0] == "status" and all(
+            item in {"--short", "-s", "--branch", "-b", "--porcelain"} for item in args[1:]
+        )
+    if command == "sed":
+        if len(args) < 2 or args[0] != "-n" or not re.fullmatch(r"[0-9]+(?:,[0-9]+)?p", args[1]):
+            return False
+        args = args[2:]
+    elif command not in {"ls", "pwd", "cat", "head", "tail", "rg", "grep", "wc", "file", "stat"}:
+        return False
+    if command in {"rg", "grep", "file", "stat"}:
+        # Estes programas têm opções que executam outros programas ou arquivos de config.
+        return False
+    root = Path(cwd).expanduser().resolve()
+    for word in args:
+        if word.startswith("-"):
+            if not re.fullmatch(r"-[alhAnbcqvmswL]+|-[0-9]+", word):
+                return False
+        elif not _within(Path(os.path.expanduser(word)).resolve() if Path(os.path.expanduser(word)).is_absolute() else (root / word).resolve(), root):
+            return False
+    return True
+
+
+def _is_question(permit: dict) -> bool:
+    return bool(re.search(r"question|ask|prompt", str(_field(permit, "type", "Type")) + " " + _permit_name(permit), re.I))
 
 
 # ------------------------------------------------------------------ estado
@@ -364,8 +519,10 @@ def notify(state: dict, now: datetime, key: str, title: str, message: str, dry_r
         return False
     script = f'display notification "{_applescript_string(message)}" with title "{_applescript_string(title)}"'
     try:
-        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
         return False
     state["notifications"][key] = _iso(now)
     return True
@@ -473,6 +630,8 @@ def _classify(inspect: dict, pending: list[dict], now: datetime, previous: str) 
         else:
             tail = ""
         return "aguardando_aprovacao", f"pedido pendente {detail}{extra}{tail}", oldest
+    if raw in {"idle", "closed", "error"} and no_delivery(inspect):
+        return "parado_sem_entrega", "worktree sem commit desde a criação do agente e sem arquivos novos/modificados", updated
     if raw == "error":
         agent_id = str(_field(inspect, "Id", "id", default=""))
         message = _error_message(inspect) or (_error_status_from_logs(agent_id) if agent_id else "")
@@ -506,10 +665,12 @@ def main(argv: list[str] | None = None) -> int:
     snapshot_path = state_dir / "agentes.json"
     log_path = state_dir / "watchdog.log"
     state = load_state(state_path)
+    refresh_quota(state, now, args.dry_run, log_path)
 
     try:
         policy = load_policy(POLICY_PATH)
         restricted = load_restricted_roots(MEMORY_POLICY_PATH)
+        allowed_models = load_allowed_models(MEMORY_POLICY_PATH)
     except PolicyError as exc:
         message = _clean(str(exc))
         print(f"paseo_watchdog: {message}", file=sys.stderr)
@@ -556,6 +717,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
         inspects[str(_field(inspect, "Id", "id", default=agent_id))] = inspect
 
+    blocked_models: set[str] = set()
+    for agent_id, inspect in inspects.items():
+        try:
+            restricted_agent = is_restricted(str(_field(inspect, "Cwd", "cwd")), restricted)
+        except (PolicyError, OSError):
+            restricted_agent = True
+            inspect["_inspect_error"] = "classificação do projeto indisponível"
+        if restricted_agent and not model_allowed(_provider_label(inspect, {}), allowed_models):
+            blocked_models.add(agent_id)
+            message = f"modelo não permitido em projeto restrito: {_provider_label(inspect, {}) or 'desconhecido'}"
+            notify(state, now, f"model:{agent_id}", "Paseo · prioridade alta", message, args.dry_run)
+            if not args.dry_run and not (state["agents"].get(agent_id) or {}).get("modelo_bloqueado"):
+                log_event(log_path, now, "modelo_nao_permitido", agente=agent_id, detalhe=message)
+
     # -- permissões: primeiro avistamento, então autoaprovação ---------------
     approved: set[str] = set()
     pending_permissions: list[dict] = []
@@ -569,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
             state["permissions"][request_id] = entry
         pending_permissions.append({**permit, "first_seen": entry["first_seen"]})
     keep = {str(_field(permit, "id", "Id", default="")) for permit in permits}
-    state["permissions"] = {key: value for key, value in state["permissions"].items() if key in keep}
+    state["permissions"] = {key: value for key, value in state["permissions"].items() if key in keep or value.get("ghost")}
 
     for permit in pending_permissions:
         request_id = str(_field(permit, "id", "Id", default=""))
@@ -577,12 +752,25 @@ def main(argv: list[str] | None = None) -> int:
         inspect = inspects.get(agent_id)
         name = _permit_name(permit)
         description = _permit_description(permit)
+        if state["permissions"][request_id].get("ghost"):
+            permit["_ghost"] = True
+            permit["_reason"] = "pedido fantasma — provável reinício do OpenCode; retome com paseo send ou apague o agente"
+            continue
+        if _is_question(permit):
+            permit["_decision"], permit["_reason"] = "notify", "pergunta ao usuário: só humano responde"
+            if notify(state, now, f"question:{request_id}", "Paseo · prioridade alta", f"pergunta ao usuário: {description}", args.dry_run):
+                log_event(log_path, now, "pergunta", agente=agent_id, pedido=request_id)
+            continue
         if inspect is None:
             permit["_decision"] = "notify"
             permit["_reason"] = "agente fora da lista (arquivado?)"
             continue
+        if inspect.get("_inspect_error") or agent_id in blocked_models:
+            permit["_decision"] = "notify"
+            permit["_reason"] = "modelo não permitido em projeto restrito" if agent_id in blocked_models else "inspect indisponível; decisão humana"
+            continue
         cwd = str(_field(inspect, "Cwd", "cwd", default=""))
-        action, reason = decide(policy, name, description, cwd, restricted)
+        action, reason = decide(policy, str(_field(permit, "name", "Name", "tool", "Tool")), str(_field(permit, "description", "Description")), cwd, restricted)
         permit["_decision"] = action
         permit["_reason"] = reason
         if action != "allow":
@@ -593,9 +781,18 @@ def main(argv: list[str] | None = None) -> int:
             approved.add(request_id)
             continue
         try:
-            run_paseo(["permit", "allow", agent_id, request_id])
+            response = run_paseo(["permit", "allow", agent_id, request_id])
+            if re.search(r"handler_error|\b404\b|unconfirmed", response, re.I):
+                raise PhantomPermission(response)
         except PaseoError as exc:
             message = _clean(str(exc))
+            if isinstance(exc, PhantomPermission) or re.search(r"handler_error|\b404\b|unconfirmed", str(exc), re.I):
+                state["permissions"][request_id]["ghost"] = True
+                permit["_ghost"] = True
+                permit["_reason"] = "pedido fantasma — provável reinício do OpenCode; retome com paseo send ou apague o agente"
+                log_event(log_path, now, "pedido_fantasma", agente=agent_id, pedido=request_id, detalhe=message)
+                notify(state, now, f"ghost:{request_id}", "Paseo · vigia", permit["_reason"], False)
+                continue
             log_event(log_path, now, "permit_error", agente=agent_id, pedido=request_id, detalhe=message)
             notify(state, now, f"permit-error:{request_id}", "Paseo · vigia", f"falhou ao aprovar {label}: {message}", False)
             continue
@@ -617,6 +814,9 @@ def main(argv: list[str] | None = None) -> int:
     for agent_id, inspect in inspects.items():
         previous = str((state["agents"].get(agent_id) or {}).get("status", ""))
         status, reason, reference = _classify(inspect, pending_by_agent.get(agent_id, []), now, previous)
+        agent_pending = pending_by_agent.get(agent_id, [])
+        if any(item.get("_ghost") for item in agent_pending):
+            status, reason = "pedido_fantasma", "pedido fantasma — provável reinício do OpenCode; retome com paseo send ou apague o agente"
         age = now - reference if reference is not None else None
         name = str(_field(inspect, "Name", "name", default=agent_id))
         cwd = str(_field(inspect, "Cwd", "cwd", default=""))
@@ -632,19 +832,20 @@ def main(argv: list[str] | None = None) -> int:
             "motivo": reason,
             "verificado_em": _iso(now),
         })
-        agents_state[agent_id] = {"status": status, "updated_at": _iso(reference) if reference else ""}
+        snapshot[-1]["modelo_bloqueado"] = agent_id in blocked_models
+        agents_state[agent_id] = {"status": status, "updated_at": _iso(reference) if reference else "", "modelo_bloqueado": agent_id in blocked_models}
 
-        if status == "aguardando_aprovacao" and age is not None and age >= timedelta(minutes=PENDING_MIN):
+        if status == "aguardando_aprovacao" and age is not None and age >= timedelta(minutes=PENDING_MIN) and not any(_is_question(item) for item in agent_pending) and agent_id not in blocked_models:
             notified = notify(
                 state, now, f"pending:{agent_id}", f"Paseo · {name}",
                 f"aguardando aprovação há {_age_text(age)}: {reason}", args.dry_run,
             )
             if notified:
                 log_event(log_path, now, "pendente", agente=agent_id, detalhe=reason, espera=_age_text(age))
-        elif status == "parado":
+        elif status in {"parado", "parado_sem_entrega"}:
             notified = notify(
                 state, now, f"stuck:{agent_id}", f"Paseo · {name}",
-                f"parado há {_age_text(age)}: {reason}", args.dry_run,
+                f"{status} há {_age_text(age)}: {reason}", args.dry_run,
             )
             if notified:
                 log_event(log_path, now, "parado", agente=agent_id, detalhe=reason, espera=_age_text(age))
@@ -666,7 +867,8 @@ def main(argv: list[str] | None = None) -> int:
             raise PaseoError("schedule ls: JSON não é lista")
     except PaseoError as exc:
         schedules = []
-        log_event(log_path, now, "schedule_error", detalhe=str(exc))
+        if not args.dry_run:
+            log_event(log_path, now, "schedule_error", detalhe=str(exc))
 
     for schedule in schedules:
         schedule_id = str(_field(schedule, "id", "Id", default=""))
@@ -678,7 +880,8 @@ def main(argv: list[str] | None = None) -> int:
                 runs = _run_entries(paseo_json(["schedule", "logs", schedule_id, "--json"]))
             except PaseoError as exc:
                 runs = []
-                log_event(log_path, now, "schedule_error", agendamento=schedule_id, detalhe=str(exc))
+                if not args.dry_run:
+                    log_event(log_path, now, "schedule_error", agendamento=schedule_id, detalhe=str(exc))
             if runs:
                 failure = _schedule_failure(runs[-1])
         if not failure:
@@ -700,8 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     write_json(state_path, state)
-    if snapshot:
-        write_json(snapshot_path, snapshot)
+    write_json(snapshot_path, snapshot)
     for line in schedule_lines:
         print(f"paseo_watchdog: {line}")
     for item in snapshot:

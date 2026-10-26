@@ -19,9 +19,12 @@ Sem o app, tudo continua funcionando pelo terminal: `claude`, `ai-memory run cod
 | Dados de SEPLAN/clientes | somente `allowed_models` em `config/ai-os-memory.toml`; conferir treino das contas | — |
 
 Antes de escolher, olhe a franquia:
+
 - Claude: barra de status (`Claude 5h X% · sem Y%`) ou `~/.local/state/ai-os/quota/claude.json`.
-- Codex: `python3 ~/Workspace/tools/workflow-ai/scripts/quota_codex.py`.
+- Codex: `~/.local/state/ai-os/quota/codex.json`. O vigia executa `python3 scripts/quota_codex.py --write` a cada 5 min, fora do sandbox, pelo launchd.
 - No Paseo: `paseo usage`.
+
+Agentes em sandbox devem ler esses dois arquivos de estado, sem executar o leitor de franquia (I-06). Arquivo ausente, leitura vencida ou status diferente de `ok` significa franquia desconhecida.
 
 ## Perfis sugeridos no Paseo (criar na UI)
 
@@ -57,12 +60,16 @@ O `paseo_watchdog` roda a cada 30 s pelo LaunchAgent e responde a pergunta "algu
 | `aguardando_aprovacao` | pedido em `permit ls` pendente há mais de 2 min |
 | `parado` | `running` com `UpdatedAt` do inspect há mais de 10 min (sem atividade) |
 | `erro` | status `error` (mostra a mensagem, inclusive limite de uso com horário) ou `closed` no meio de uma execução |
-| `concluido` | `idle`/`closed` normal |
+| `parado_sem_entrega` | `idle`/`closed`/`error` num worktree Git, sem commit desde a criação do agente nem arquivos novos/modificados |
+| `pedido_fantasma` | aprovação falhou com `handler_error`, 404 ou `unconfirmed`; não tenta novamente |
+| `concluido` | `idle`/`closed` com entrega ou sem evidência suficiente de ausência de entrega |
 | `trabalhando` | `running` com atividade recente |
 
 Quando algum agente entra em `aguardando_aprovacao`, `parado` ou `erro`, chega uma notificação do macOS. A mesma notificação não repete por 10 min.
 
-A autoaprovação segue `config/paseo-watchdog-policy.toml`, versionada no repo. As regras são ordenadas e valem por nome da ferramenta e regex da descrição. `allow` só aprova leitura/inspeção dentro de `~/.paseo/worktrees` ou de um repo listado em `allowed_roots`; `.env`, segredos, backups, planilhas, `rm -rf`, instalação de pacotes, migração, docker e download com escrita caem em `deny` (nunca aprovam sozinhos). Perguntas e todo o resto viram `notify`. Projeto restrito em `config/ai-os-memory.toml` nunca é autoaprovado.
+A autoaprovação segue `config/paseo-watchdog-policy.toml`, versionada no repo. As regras são ordenadas e valem por nome da ferramenta e regex da descrição. `allow` só aprova leitura/inspeção dentro de `~/.paseo/worktrees` ou de um repo listado em `allowed_roots`; `.env`, segredos, backups, planilhas, `rm -rf`, instalação de pacotes, migração, docker e download com escrita caem em `deny` (nunca aprovam sozinhos). Perguntas e todo o resto viram `notify`. Em projeto restrito, a restrição vale para o modelo: `allow` continua possível se o provider/model estiver em `allowed_models` de `config/ai-os-memory.toml`. Modelo não permitido gera alerta de prioridade alta e bloqueia as aprovações desse agente. A classificação inclui o checkout principal dos worktrees.
+
+Pedido `question` gera aviso de prioridade alta imediato: só humano responde. Pedido fantasma gera um aviso único: provável reinício do OpenCode; retome com `paseo send <id>` ou apague o agente. Preserve o serviço do OpenCode enquanto houver agentes ativos (I-26). Comandos compostos, opções opacas, leitura fora do cwd e acesso a diretório externo exigem decisão humana. A inspeção Git do vigia desativa `core.fsmonitor` para evitar executar hooks do repo fora do sandbox. A aprovação de `git status` mantém a configuração Git do agente e depende do isolamento dele. O subconjunto automático de shell é conservador: `git status`, listagem e leitura simples; `git log/diff/show/add/commit`, `rg`, `grep`, `file` e `stat` ficam para decisão humana.
 
 Para ver o estado e desligar:
 

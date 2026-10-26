@@ -7,9 +7,8 @@
 #
 # Ações:
 #   deny    nunca aprova automaticamente; o pedido fica para decisão humana.
-#   allow   aprova, MAS só se o cwd do agente estiver em allowed_roots e não
-#           for projeto restrito (config/ai-os-memory.toml ou marcador
-#           .ai-memory.toml com workspace = "restrito").
+#   allow   aprova com cwd em allowed_roots; em projeto restrito, exige modelo
+#           listado em allowed_models de config/ai-os-memory.toml.
 #   notify  nunca aprova; só avisa o Felipe.
 #
 # deny primeiro, allow depois: assim "cat .env" e "git commit && rm -rf" caem
@@ -22,7 +21,8 @@ version = 1
 allowed_roots = [
   "~/.paseo/worktrees",
   "~/Workspace/tools/workflow-ai",
-  "~/Workspace/projetos/sgg-v3-docs",
+  "~/Workspace/tools/laboratorio",
+  "~/Workspace/projetos/sgg-controle/sgg-v3/sgg-v3-docs",
 ]
 
 # ------------------------------------------------------------------ deny
@@ -83,7 +83,8 @@ description = "\\bgit\\s+push\\b|\\bgit\\s+reset\\s+--hard\\b|\\bgit\\s+clean\\s
 reason = "operação destrutiva ou que publica no remoto"
 
 # ------------------------------------------------------------------ allow
-# Leitura e inspeção. O cwd fora das raízes permitidas cai em notify mesmo aqui.
+# Leitura e inspeção. O código valida o comando inteiro e os caminhos.
+# Composição, opções opacas e diretórios externos ficam para decisão humana.
 
 [[rules]]
 action = "allow"

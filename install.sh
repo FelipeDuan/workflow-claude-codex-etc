@@ -577,6 +577,10 @@ $(lock_lines uvtool | head -n 1)
 EOF
     [ -n "${ver:-}" ] || return 0
     step "Graphify ($pkg==$ver)"
+    if [ "$DRY_RUN" = 1 ]; then
+        did "verificar uv tool $pkg==$ver e instalar skill em staging"
+        return 0
+    fi
     if ! command -v uv >/dev/null 2>&1; then
         warn "uv não encontrado; Graphify não instalado (instale uv e rode de novo, ou: uv tool install $pkg==$ver)"
         return 0
@@ -833,8 +837,8 @@ setup_watchdog() {
     local logdir="$HOME/Library/Logs/ai-os"
     local python_bin plist changed=0 domain
     step "Vigia do Paseo (LaunchAgent, --watchdog)"
-    if [ ! -f "$src" ] || [ ! -f "$script" ]; then
-        warn "arquivos do vigia ausentes ($src / $script); LaunchAgent não instalado"
+    if [ ! -f "$src" ] || [ ! -f "$script" ] || [ ! -f "$REPO_DIR/scripts/quota_codex.py" ]; then
+        warn "arquivos do vigia/franquia ausentes; LaunchAgent não instalado"
         return 0
     fi
     python_bin="$(find_python_tomllib || true)"
