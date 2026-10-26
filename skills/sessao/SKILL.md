@@ -20,7 +20,7 @@ Authority: `docs/ai-os/GESTAO-CONTEXTO.md` and `docs/ai-os/decisions/0004-gestao
 
 ## Open session
 
-1. Read the handoff already injected by the hook; do not request another handoff.
+1. If the hook injected a handoff, read it and do not request another. If none was injected, follow `ai-memory-handoff` to list pending handoffs, and prefer the observations of a more recent interrupted session over an older handoff.
 2. Identify the current repository's canonical checkout from its instructions. For AI OS, use `workflow-ai-ai-os`, branch `feat/ai-os-v2`, not the possibly stale `workflow-ai` copy.
 3. Check `git worktree list` and the current branch (`git branch --show-current`) against that target (I-31) before working.
 4. Read the canonical `STATUS.md`, especially "ESTADO ATUAL E PENDÊNCIAS" (AI OS: `docs/ai-os/STATUS.md`). Confirm the objective and next step against it.

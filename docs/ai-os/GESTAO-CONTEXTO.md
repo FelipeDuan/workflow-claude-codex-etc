@@ -11,7 +11,7 @@ O inventário de 26/10 mostrou por que fechar ainda dá medo:
 - o ai-memory guarda o episódio (observações, trecho final da resposta e handoff). O inventário mediu esse trecho em 2 KB, mas o número ainda precisa ser confirmado na versão instalada. Página durável só nasce quando um agente a escreve de propósito, como a `decisions/design-director-main-conversation.md`. Não existe consolidação automática por LLM, e não há regras ativas;
 - STATUS, ADRs e INCIDENTES só mudam quando alguém edita;
 - queda por quota pode terminar sem handoff (I-11), e há 10 handoffs pendentes acumulados;
-- o hub manda ler o STATUS em `workflow-ai/` e trabalhar em `workflow-ai-ai-os/` (`tools/CLAUDE.md`), então uma sessão nova pode ler um estado desatualizado.
+- o hub manda ler o STATUS em `workflow-ai/` e trabalhar em `workflow-ai-ai-os/` (`tools/CLAUDE.md`), então uma sessão nova podia ler um estado desatualizado (corrigido em 26/10: o hub aponta para `workflow-ai-ai-os`).
 
 ## Princípio
 
@@ -55,13 +55,13 @@ Quando houver divergência, separe o comportamento observado (código, git, test
 | Sessão caiu sem handoff | Ache a sessão no `memory_briefing` e leia `memory_read_session_observations` em ordem decrescente. Depois confira checkout, arquivos não rastreados, `git diff` e `git log`. Só o diff não recupera decisões nem perguntas. |
 | Compactação no meio do trabalho | Seção "Compact Instructions" no CLAUDE.md dizendo o que preservar. Prefira `/compact <foco>` manual a esperar o automático. |
 | Memória diverge do código | Classifique a divergência como observado × autorizado antes de mexer (ver Princípio). |
-| Handoffs pendentes acumulados | Aceite ou cancele na manutenção. |
+| Handoffs pendentes acumulados | Liste e identifique os obsoletos. Não aceite handoff para limpar, porque aceitar consome o handoff; cancelar só a pedido do Felipe. |
 
 A coexistência com o Claude-Mem segue as proteções do I-14 e do I-22. O protocolo não cria captura nova.
 
-## Manutenção (cadência a medir)
+## Manutenção (sob demanda)
 
-`memory_lint`, revisão dos handoffs pendentes, poda do STATUS e conferência do tamanho do CLAUDE.md e do AGENTS.md (CLAUDE.md abaixo de ~200 linhas, segundo a [doc de memória](https://code.claude.com/docs/en/memory)). Comece semanal e ajuste pelo uso real.
+`memory_lint`, revisão dos handoffs pendentes, poda do STATUS e conferência do tamanho do CLAUDE.md e do AGENTS.md (CLAUDE.md abaixo de ~200 linhas, segundo a [doc de memória](https://code.claude.com/docs/en/memory)). Sem cadência fixa: faça quando o STATUS passar de uma página ou os handoffs pendentes atrapalharem. Escolha trivial não precisa de registro.
 
 ## Implementação, em ordem
 
@@ -86,7 +86,28 @@ Agentes Codex novos (gpt-6-luna), sem acesso ao chat original:
 | Queda sem handoff | Passou com ressalva: reconstruiu a sessão `d3bee63b` (tarefas, decisões, commits, pendência) por `memory_briefing` + `memory_read_session_observations`. Não viu o trabalho feito antes de a sessão entrar num projeto habilitado (`~/Workspace` não tem marcador) |
 | Pendência de outra frente | Passou: o diff do STATUS só adicionou linhas; as pendências do SGG continuaram |
 
+Limite do teste: ele comprovou a recuperação por leitura, mas não o ciclo completo encerrar → hook gera o handoff → sessão nova o recebe. Esse ciclo será observado no primeiro uso real da skill `sessao`. Edições concorrentes no STATUS também não foram testadas: um único responsável integra o STATUS.
+
 Lição: só é capturado o que acontece dentro de um projeto com `.ai-memory.toml`. Para tarefas soltas (ex.: manutenção do Mac), abra a sessão num projeto habilitado ou registre o resultado no STATUS ao final.
+
+## Linha de base de consumo (medida em 26/10/2026)
+
+Medição feita pelo Codex (gpt-6.1-sol) nos logs do Claude Code e do Codex, com mensagens deduplicadas por ID e conferida contra o log bruto de uma sessão. Comparação de 08–21/10 (antes do AI OS) com 22–25/10 (depois), dias completos:
+
+| Métrica | Antes | Depois |
+|---|---:|---:|
+| Claude, milhões de tokens/dia | 70,6 | 58,7 (−17%) |
+| Codex, milhões de tokens/dia | 0 | 40,1 |
+| Contexto por turno na conversa principal do Claude | 307 mil | 331 mil (+8%) |
+| Parte dos tokens do Claude em subagentes | 58% | 4% |
+| Leitura de cache no total do Claude | — | 96% |
+
+Leitura:
+
+- O volume total subiu (+40%), mas o Claude, que é a cota mais escassa, caiu. O trabalho migrou para o Codex, que tem cota própria. Isso é volume de tokens, não dinheiro: as assinaturas têm preço fixo, e o que importa é o limite de cada uma.
+- O protocolo de sessões curtas ainda não entrou nesse período. O indicador que ele deve mover é o contexto por turno da conversa principal, que continua em ~300 mil, e quase tudo isso é a releitura do histórico (leitura de cache).
+- São só 4 dias e com tarefas diferentes (antes era portfólio; depois, AI OS). Não dá para atribuir causa.
+- Remedir depois de 2 semanas de uso do protocolo, com a mesma métrica. O script ficou em `/tmp/ai-os-economia/analisar.py`, que é temporário; trazê-lo para o repo está pendente.
 
 ## Decisões do Felipe (26/10/2026)
 
