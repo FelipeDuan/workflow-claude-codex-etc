@@ -124,6 +124,24 @@ Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos A
 - **Encerrar** quando: o objetivo acabar, o assunto mudar, houver mais de duas correções falhas no mesmo problema, vier uma pausa longa ou o contexto passar de ~200k tokens (alerta experimental). Antes de sair, atualize só a sua frente no STATUS e escreva a nota de estado.
 - **Sessão caiu sem handoff:** `memory_briefing` → `memory_read_session_observations` da sessão → `git status`/`diff`/`log` → STATUS.
 
+## Higiene em modo diagnóstico (scan e plano)
+
+`scripts/hygiene.py` só lê e imprime. Ele **nunca** apaga, move, poda, mata processo, descarrega launchd nem roda `git gc/prune/worktree remove` ou `paseo delete`. A v1 não tem `--apply`.
+
+```sh
+python3 scripts/hygiene.py scan                  # JSON em ~/.local/state/ai-os/higiene/scan-AAAAMMDD-HHMM.json (modo 600)
+python3 scripts/hygiene.py plan --scan <arquivo> --out ~/.local/state/ai-os/higiene/plano-AAAAMMDD-HHMM.md
+python3 scripts/hygiene.py plan --days 14        # sem --scan, faz um scan novo em memória
+```
+
+Como ler o plano (qualquer dúvida preserva):
+
+- **PRESERVAR**: alteração local, untracked, commit sem equivalente em outra ref (`git cherry` cobre cherry-pick), lock, agente rodando/aguardando/recente, checkout principal, projeto restrito.
+- **CANDIDATO**: worktree limpa e parada há mais de N dias (padrão 7), ou agente `idle`/`closed` sem pendência há mais de N dias. Cada candidato traz o comando exato como sugestão, nunca executado. Rode à mão, um por vez, depois de conferir. O espaço recuperável é ESTIMADO (soma de bytes em disco das worktrees candidatas).
+- **DESCONHECIDO**: Paseo indisponível, agente em erro ou com status inédito, symlink, leitura do git falhou. Nada a fazer sem olhar.
+
+Também aparecem disco livre, pressão de memória e swap (o sinal que importa, não "RAM usada") e o tamanho por classe; `~/Library/Caches` é só informativo. Caminhos de projeto restrito saem como `restrito/<n>` e títulos de agentes nunca são coletados. O plano e o scan têm caminhos reais: ficam fora do repo.
+
 ## Configuração local do Paseo (já aplicada)
 
 ```sh
