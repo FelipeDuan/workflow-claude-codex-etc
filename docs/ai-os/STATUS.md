@@ -233,3 +233,20 @@ A FAQ oficial do Antigravity diz que acessar o serviço por software de terceiro
 **Registro histórico:** a integração foi testada em 09/11/2026; incluiu provider Paseo, sensor de franquia e teste de revisão. A experiência levou à identificação do risco contratual e do I-33. O sensor `scripts/quota_antigravity.py` permanece como ferramenta manual do Felipe. O alvo `install.sh --only antigravity` prepara regras e skills para o uso direto, sem iniciar o CLI.
 
 Uma futura via Gemini API pelo Google AI Studio é um experimento separado, ainda não implementado. Se usar o tier gratuito, limitar a dados públicos e nunca enviar conteúdo de projeto restrito.
+
+## Frente: Observabilidade e evolução com evidência (RFC do GPT), 09/11/2026
+
+**Origem:** debate briefing → parecer do GPT → contraproposta (arquivos em `~/Workspace/tools/conversa-gpts/`). Versão enxuta aprovada pelo Felipe: JSONL e dados já no disco antes de SQLite; protocolo GQM antes da coleta; nenhuma limpeza destrutiva; merge na `main` só com aprovação.
+
+**Branches locais (sem push):**
+- `fix/antigravity-compliance` (8bf9992): P0a, ADR-0006. O provider do Paseo já foi desligado em `~/.paseo/config.json` (backup `config.json.bak-20261109-p0a`).
+- `feat/quota-history-and-transitions` (sobre a anterior): P1. O vigia grava `<state>/history/{quota,agents,collector}-AAAA-MM.jsonl`. Revisão cruzada: 9 achados corrigidos. 123 testes.
+- `chore/baseline-v0.1` (8e4ccfb): P0b, `scripts/metrics/` reproduz o briefing (`docs/ai-os/BASELINE-2026-11-09.md`).
+- `docs/gqm-protocol-v1` (45fee32): P0c, `docs/research/PROTOCOLO-GQM.md` e `LITERATURA.md`.
+- Tag local `baseline-2026-11-09` = f7d355e (estado antes da intervenção).
+
+**Ainda não ativo:** o vigia em produção roda do checkout `workflow-ai/` e continua com o código antigo, inclusive a leitura `agy -p "/usage"`, até as branches serem integradas.
+
+**Achados:** a CLI do Paseo não expõe `--label` em `ls`/`inspect --json` (só o MCP), então o vínculo de tarefa do P2 usa outro caminho (prefixo no título ou registro próprio). Commits de S1 no briefing estavam contados em dobro (originais + cherry-picks); o P2 deve deduplicar por patch-id.
+
+**Próximo passo exato:** Felipe revisa e aprova a integração (ordem: P0a → P1 → P0b → P0c em `feat/ai-os-v2`, fast-forward da `main`, tag `v0.1.0`, `./install.sh` se preciso), depois P2 (ledger de tarefa + relatório), P3 (política única + preflight dry-run), P4 (higiene dry-run), P5 (memória/contexto).
