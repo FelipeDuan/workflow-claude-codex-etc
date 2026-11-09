@@ -2,6 +2,8 @@
 
 **Status:** aceita como v0 experimental em 22/10/2026. Só sugere: não executa nada sozinha.
 
+A política vigente é [`docs/ai-os/roteamento.json`](../roteamento.json) (`policy_version 2026-11-09.1`); esta ADR registra a justificativa. As regras e exceções abaixo são históricas. A [ADR-0007](0007-politica-canonica-e-preflight.md) consolida sua definição operacional. A exceção para tarefa curta perto do reset permanece vigente, estruturada em `quota.reset_exception` e aplicada somente com `--short-task`.
+
 ## Contexto
 
 O Felipe quer evitar que um provedor (em geral o Claude) gaste a franquia em tarefas que outro modelo faria igual, e quer guardar os modelos frontier para onde eles fazem diferença. Os percentuais de provedores diferentes não são comparáveis entre si, e uma janela perto do reset vale menos do que uma janela semanal no fim.

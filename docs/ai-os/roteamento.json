@@ -1,70 +1,11 @@
 {
-  "schema_version": 2,
-  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity/agy: uso direto pelo Felipe; nenhum agente, Paseo, Claude ou script do AI OS invoca agy (ADR-0006). GPT-6 Astra (Codex) so para risco alto sem executor mais barato que atinja o piso, com --thinking low/medium, uma tarefa pesada por vez no Codex (I-23) e franquia Codex 5h < 50% (franquia unknown bloqueia o Astra; uma revisao com thinking padrao gastou 27% da janela 5h). Revisoes de risco medio: gpt-6.1-sol (thinking low/medium), gpt-6-luna se mecanica. Decomposicao: haiku para checagens mecanicas, sonnet nativo para docs/rotina, opus so para orquestracao e alto risco. Gemini API via AI Studio e experimento futuro separado; nao implementar agora.",
+  "schema_version": 3,
+  "nota": "Política canônica executável pelo preflight consultivo. O preflight decide e sugere; nunca inicia agentes. IDs de modelos devem ser confirmados no host.",
   "decomposicao": {
     "haiku": "checagens, inventarios e verificacoes mecanicas",
     "sonnet": "docs e implementacao de rotina (nativo Claude Code)",
     "opus": "orquestracao e decisao de risco alto"
   },
-  "classes": {
-    "high": [
-      {
-        "harness": "claude",
-        "perfil": "frontier-arquitetura"
-      },
-      {
-        "harness": "codex",
-        "modelo": "gpt-6-astra",
-        "perfil": "frontier-implementacao",
-        "condicao": "so para risco alto sem executor mais barato que atinja o piso; requer franquia Codex 5h < 50% (franquia unknown bloqueia o Astra); sempre com --thinking low ou medium explicito; uma tarefa pesada por vez no Codex (I-23)"
-      }
-    ],
-    "medium": [
-      {
-        "harness": "codex",
-        "modelo": "gpt-6.1-sol",
-        "perfil": "implementacao"
-      },
-      {
-        "harness": "codex",
-        "modelo": "gpt-6-luna",
-        "perfil": "revisao-mecanica"
-      },
-      {
-        "harness": "claude",
-        "perfil": "frontier-arquitetura"
-      }
-    ],
-    "low": [
-      {
-        "harness": "opencode",
-        "perfil": "economico-pessoal"
-      },
-      {
-        "harness": "codex",
-        "modelo": "gpt-6-luna",
-        "perfil": "implementacao"
-      }
-    ]
-  },
-  "acesso_dados": {
-    "pessoal-publico": [
-      "claude",
-      "codex",
-      "opencode"
-    ],
-    "pessoal-restrito": [
-      "claude",
-      "codex"
-    ],
-    "institucional": [
-      "claude",
-      "codex",
-      "opencode/glm-5.3-flash-free",
-      "opencode/deepseek-v4.1-flash-free"
-    ]
-  },
-  "nota_institucional": "Segue config/ai-os-memory.toml. Claude/Codex somente via assinaturas, condicionado à configuração de treino das contas Claude/ChatGPT que Felipe deve verificar e desativar. OpenCode Zen/Console: somente os IDs explícitos com retenção zero e sem treino, conforme política oficial consultada em 2026-10-23: https://opencode.ai/v2/docs/console/models/. Lista consultiva, sem bloqueio técnico de modelos.",
   "guardrails": {
     "quota_desconhecida": "pedir verificacao real",
     "limite_fallback": 2,
@@ -104,5 +45,175 @@
         "forcas": "fallback; pode sair em 18/11/2026"
       }
     }
-  }
+  },
+  "policy_version": "2026-11-09.1",
+  "providers": {
+    "claude": {
+      "allowed_modes": [
+        "plan",
+        "default",
+        "acceptEdits",
+        "auto"
+      ],
+      "forbidden_modes": [
+        "bypassPermissions"
+      ],
+      "thinking_required": false,
+      "default_mode": "default",
+      "default_thinking": null,
+      "quota_metered": true
+    },
+    "codex": {
+      "allowed_modes": [
+        "auto",
+        "auto-review"
+      ],
+      "forbidden_modes": [
+        "full-access"
+      ],
+      "thinking_required": true,
+      "default_mode": "auto-review",
+      "default_thinking": "medium",
+      "quota_metered": true
+    },
+    "opencode": {
+      "allowed_modes": [
+        "build",
+        "plan"
+      ],
+      "forbidden_modes": [],
+      "thinking_required": false,
+      "default_mode": "build",
+      "default_thinking": null,
+      "quota_metered": false
+    }
+  },
+  "forbidden_providers": [
+    "antigravity",
+    "agy"
+  ],
+  "required_parameters": [
+    "provider_model",
+    "mode"
+  ],
+  "quota": {
+    "max_age_seconds": 900,
+    "thresholds": {
+      "five_hour": 85,
+      "weekly": 75
+    },
+    "window_aliases": {
+      "five_hour": "five_hour",
+      "weekly": "weekly",
+      "seven_day": "weekly"
+    },
+    "threshold_risks": [
+      "low",
+      "medium"
+    ],
+    "unknown_decision": "ask_human",
+    "stale_decision": "ask_human",
+    "reset_exception": {
+      "max_minutes_to_reset": 20,
+      "windows": [
+        "five_hour"
+      ]
+    }
+  },
+  "astra": {
+    "provider": "codex",
+    "model": "gpt-6-astra",
+    "allowed_risks": [
+      "high"
+    ],
+    "allowed_thinking": [
+      "low",
+      "medium"
+    ],
+    "five_hour_used_percent_exclusive_max": 50,
+    "require_no_cheaper_eligible": true,
+    "unknown_decision": "deny"
+  },
+  "concurrency": {
+    "codex": {
+      "max_heavy": 1,
+      "light_models": [
+        "gpt-6-luna",
+        "gpt-5.6-luna"
+      ],
+      "unknown_model_is_heavy": true
+    },
+    "claude": {
+      "max_heavy": null,
+      "light_models": [],
+      "unknown_model_is_heavy": true
+    },
+    "opencode": {
+      "max_heavy": null,
+      "light_models": [],
+      "unknown_model_is_heavy": true
+    }
+  },
+  "eligible_models": {
+    "high": [
+      "claude/opus",
+      "codex/gpt-6-astra"
+    ],
+    "medium": [
+      "claude/sonnet",
+      "codex/gpt-6.1-sol",
+      "codex/gpt-6-luna"
+    ],
+    "low": [
+      "opencode/opencode/glm-5.3-flash-free",
+      "opencode/opencode/deepseek-v4.1-flash-free",
+      "codex/gpt-6-luna"
+    ]
+  },
+  "acesso_dados": {
+    "pessoal-publico": [
+      "claude",
+      "codex",
+      "opencode"
+    ],
+    "pessoal-restrito": [
+      "claude",
+      "codex"
+    ],
+    "institucional": [
+      "claude",
+      "codex",
+      "opencode/glm-5.3-flash-free",
+      "opencode/deepseek-v4.1-flash-free"
+    ]
+  },
+  "nota_institucional": "Segue config/ai-os-memory.toml. Claude/Codex somente via assinaturas, condicionado à configuração de treino das contas Claude/ChatGPT que Felipe deve verificar e desativar. OpenCode Zen/Console: somente os IDs explícitos com retenção zero e sem treino, conforme política oficial consultada em 2026-10-23: https://opencode.ai/v2/docs/console/models/. Lista consultiva, sem bloqueio técnico de modelos. Claude/Codex = assinaturas, não gateway. São dados documentados; o preflight aplica allowed_models de config/ai-os-memory.toml e não classifica dados por estas categorias.",
+  "worktree_required_parameters": [
+    "base"
+  ],
+  "reviewers": {
+    "high": {
+      "different_model_family": true
+    },
+    "medium": {
+      "order": [
+        "outro harness elegível",
+        "codex/gpt-6.1-sol",
+        "codex/gpt-6-luna"
+      ],
+      "sol_thinking": [
+        "low",
+        "medium"
+      ],
+      "luna_only_mechanical": true
+    }
+  },
+  "documented_only": [
+    "acesso_dados",
+    "nota_institucional",
+    "reviewers",
+    "guardrails.limite_fallback",
+    "guardrails.proibir_autoinstalacao_plugins_terceiros",
+    "decomposicao"
+  ]
 }

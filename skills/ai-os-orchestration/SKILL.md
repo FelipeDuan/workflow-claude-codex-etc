@@ -13,48 +13,39 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 - Split only independent tasks with verifiable acceptance criteria. Assign one writer per worktree; keep dependent work sequential.
 - State the distribution before dispatch: task → executor → reason. Choosing not to delegate is valid.
 
-## 2. Check availability and select the executor
+## 2. Select an executor and run preflight
 
-1. Run `paseo daemon status`. If unavailable, fall back to native subagents and tell Felipe which provider or isolation requirements cannot be met.
-2. Check whether the project matches `[restricted].paths` in `~/Workspace/tools/workflow-ai/config/ai-os-memory.toml` (including its main checkout for worktrees), or has a SessionStart restriction warning. File presence alone does not make a project restricted. Such projects permit only `allowed_models`, including fallback and reviewers. Match Paseo's `opencode/opencode/<model>` against policy ID `opencode/<model>`. Claude/Codex mean subscription harnesses, not gateway APIs.
-3. Read `~/.local/state/ai-os/quota/claude.json` and `codex.json` in that directory; the watchdog updates Codex outside the sandbox every 5 min (I-06). Missing, stale, or failed readings mean `unknown`; never invent percentages.
-4. Apply ADR-0002's quality floor, then choose the lowest effective coordination and quota cost:
+1. Run `paseo daemon status`. If unavailable, use an eligible native specialist and report any unmet provider or isolation requirement.
+2. Classify risk and choose the cheapest executor that meets the quality floor. Policy lives in `docs/ai-os/roteamento.json`; project restrictions and allowed model IDs live in `config/ai-os-memory.toml`. Read these files before choosing an executor, fallback, or reviewer. Confirm model IDs on the host.
+3. Before every `paseo run`, run `python3 scripts/preflight.py ...` from the workflow-ai checkout with the intended launch arguments and `--risk`. Use Python 3.11 or newer. The preflight reads metered-provider quota snapshots and the global `paseo ls --json -a -g --background` snapshot; it never launches agents or changes state.
+4. Proceed only on `allow`. For `ask_human`, present the reason codes and eligible alternatives to Felipe. For `deny`, correct the parameters or select an eligible executor and rerun. Quota does not lower the high-risk quality floor. Astra also requires the explicit human assessment `--no-cheaper-eligible` when no cheaper executor meets that floor.
 
 | Risk | Executor | Verification |
 |---|---|---|
-| High: security, auth, data, architecture | Claude Opus; GPT-6 Astra only if no cheaper executor meets the floor (see Astra rule) | Reviewer from another model family |
-| Medium | Codex gpt-6.1-sol / gpt-6-luna or Claude Sonnet | Large diff: reviewer from another eligible harness, then gpt-6.1-sol (thinking low/medium), gpt-6-luna if mechanical |
-| Low, test-verifiable | OpenCode free | Orchestrator checks tests and diff |
+| High: security, auth, data, architecture | Claude Opus; Codex Astra subject to the JSON conditions | Reviewer from another model family |
+| Medium | Codex gpt-6.1-sol / gpt-6-luna or Claude Sonnet | For a large diff: another eligible harness, then gpt-6.1-sol with thinking low/medium, gpt-6-luna if mechanical |
+| Low, test-verifiable | OpenCode free or Codex gpt-6-luna | Orchestrator checks tests and diff |
 
-5. Astra rule: a single read-only Astra review (default thinking) cost 27% of the Codex 5h window (09/11); use only for high risk, always `--thinking low|medium`, one heavy task at a time (I-23), Codex 5h <50% (`unknown` quota blocks Astra). Decomposition: split tasks and send each part to the cheapest eligible model that meets the floor: Haiku for mechanical checks, native Sonnet for docs/routine code, Opus only to orchestrate or decide high risk (ADR-0002 amendment 2026-11-09).
-6. At 5h usage ≥85% or weekly usage ≥75%, prefer another provider for new low/medium-risk tasks. Consider reset time; ADR-0002 allows a short task within 20 minutes of reset. Never lower the high-risk quality floor: wait or ask Felipe if no eligible executor/reviewer is available.
-7. Verify available model IDs on the host. `docs/ai-os/roteamento.json` is advisory, not native Paseo configuration. In this repo, consult ADR-0002/0003 and `docs/ai-os/USO-DIARIO.md` for operational details.
+OpenCode has no official quota meter; missing quota is expected and does not block it. Claude/Codex mean subscription harnesses, not gateway APIs. Reviewer family, medium-risk review order, data classes and fallback limits remain orchestration duties documented in the JSON, beyond the preflight's checks.
 
 ## 3. Launch with explicit ownership
 
-From a terminal, substitute the current branch, confirmed provider/model, and a provider-valid mode:
+Run preflight against the destination project (`--cwd`) and the exact base reference. Example from the workflow-ai checkout:
 
 ```sh
-# Open the task first; --cwd is required and identifies the target project:
-python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py open "<short objective>" --risk <low|medium|high> --cwd <project>
-
-# For Codex (--thinking is mandatory, e.g. low|medium):
-paseo run --no-wait --title "[<task_id>] <t>" --provider codex/<model> --mode auto-review --thinking <low|medium> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
-
-# For other providers:
-paseo run --no-wait --title "[<task_id>] <t>" --provider <provider/model> --mode <mode> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
-
-# Link the returned agent ID; use review or fix for those roles:
-python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py link <task_id> <agent_id> --role exec
+python3 scripts/ai_os_task.py open "<short objective>" --risk medium --cwd <project>
+python3 scripts/preflight.py --provider codex/gpt-6.1-sol --mode auto-review --thinking medium --new-workspace worktree --base <current-branch> --cwd <project> --risk medium
+# After allow, use the same provider/model, mode, thinking, base and cwd:
+paseo run --no-wait --title "[<task_id>] <title>" --provider codex/gpt-6.1-sol --mode auto-review --thinking medium --new-workspace worktree --worktree-slug <slug> --base <current-branch> --cwd <project> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+python3 scripts/ai_os_task.py link <task_id> <agent_id> --role exec
 ```
 
-- The title prefix must be literal, e.g. `[T-20261109-01] <t>`. Paseo `ls --json` and `inspect --json` do not expose labels; keep both the explicit link and the prefix. Use the same task ID for its reviewers and fixes.
-- Always specify `provider/model` (I-19) and `--base` (I-17); a new worktree otherwise starts from the default branch.
-- Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`. Always pass explicit `--thinking` (mandatory on every Codex run, e.g. `--provider codex/gpt-6.1-sol --thinking medium`).
-- Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
-- OpenCode mode IDs: `build`, `plan`. Pass mode IDs, not UI labels (`Build` is rejected).
-- Inside Paseo, use injected MCP tools `create_workspace` then `create_agent`. Explicitly set the base branch, provider/model and `settings.modeId`; children do not inherit model or mode (I-19). Apply the same ownership and permission limits.
-- Record each agent ID and worktree/branch. Await completion notifications inside Paseo without polling.
+- Keep the literal title prefix, e.g. `[T-20261109-01] <title>`, and the explicit task link; Paseo does not expose labels. Reuse the task ID for reviewers and fixes, with the corresponding `--role`.
+- Specify provider/model, mode and provider-required parameters explicitly. A new worktree requires an explicit base; any supplied base must exist. Child agents do not inherit these settings (I-17, I-19).
+- Inside Paseo, apply the same preflight before `create_workspace` and `create_agent`. Carry the checked base, provider/model and `settings.modeId` into those calls.
+- Run one heavy Codex task at a time, as defined by `concurrency` in the JSON. Launch sequentially: preflight, run, preflight, run. `--planned-heavy N` adds heavy launches already planned but not yet visible in the snapshot; default is zero.
+- With `--short-task`, the JSON reset exception can allow a short task within 20 minutes of the five-hour reset; it never bypasses the weekly limit or concurrency.
+- Assign one writer per worktree. Record each agent ID and branch; await completion notifications inside Paseo without polling.
 
 ## 4. Handle waiting and approvals
 
@@ -64,7 +55,7 @@ python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py link <task_id> <agen
 - A `question` request needs a human answer; notify immediately.
 - Keep the OpenCode service running while agents are active; restarting loses permission handlers and creates phantom requests (I-26).
 - Prefer `paseo schedule` to resume after a usage limit; tested on 25/10/2026.
-- Run one heavy Codex agent at a time (I-23).
+- Recheck preflight immediately before launch; its concurrency check is a snapshot, not a reservation (I-23).
 
 ## 5. Verify, integrate, and clean up
 

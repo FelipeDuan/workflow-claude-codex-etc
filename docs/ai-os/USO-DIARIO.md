@@ -9,14 +9,35 @@
 
 Sem o app, tudo continua funcionando pelo terminal: `claude`, `ai-memory run codex`, `opencode`.
 
-## Quem faz o quê (ADR-0002, consultivo)
+## Quem faz o quê
 
-| Tarefa | Primeira escolha | Revisor |
+A política vigente está em [`roteamento.json`](roteamento.json). Ela define modelos por risco, modos, parâmetros obrigatórios, franquia, concorrência e a regra do Astra. Os projetos restritos usam `allowed_models` de `config/ai-os-memory.toml`, inclusive revisores e alternativas. A [ADR-0002](decisions/0002-roteamento-por-capacidade-e-franquia.md) registra a justificativa histórica; a [ADR-0007](decisions/0007-politica-canonica-e-preflight.md) registra a fonte canônica.
+
+| Risco | Executor | Verificação |
 |---|---|---|
-| Risco alto (segurança, auth, dados, arquitetura) | Claude Opus; Codex Astra só com cautela (ver abaixo) | outra família |
-| Risco médio | Codex gpt-6.1-sol / gpt-6-luna ou Claude Sonnet | quando o diff for grande: revisor de outro harness elegível, depois gpt-6.1-sol (`--thinking low/medium`), gpt-6-luna se mecânica |
-| Risco baixo e com teste | OpenCode gratuito (GLM-5.3-Flash / DeepSeek V4.1 Flash) | conferir testes e diff |
-| Dados de SEPLAN/clientes | somente `allowed_models` em `config/ai-os-memory.toml`; conferir treino das contas | — |
+| Alto: segurança, auth, dados, arquitetura | Claude Opus; Codex Astra sob as condições do JSON | Revisor de outra família de modelo |
+| Médio | Codex gpt-6.1-sol / gpt-6-luna ou Claude Sonnet | Diff grande: outro harness elegível, depois gpt-6.1-sol com thinking low/medium, gpt-6-luna se mecânica |
+| Baixo e verificável por teste | OpenCode gratuito ou Codex gpt-6-luna | Orquestrador confere testes e diff |
+
+Antes de cada lançamento, rode no checkout do workflow-ai (Python 3.11 ou superior):
+
+```sh
+python3 scripts/preflight.py --provider codex/gpt-6.1-sol --mode auto-review --thinking medium --base <branch> --cwd <projeto> --new-workspace worktree --risk medium
+```
+
+O preflight só consulta dados e imprime JSON. `allow` autoriza seguir com os mesmos argumentos; `ask_human` pede decisão de Felipe; `deny` exige corrigir a solicitação e repetir a consulta. Códigos de saída: `0`, `2` e `1`, respectivamente. O preflight nunca executa `paseo run` e não reserva vaga de concorrência: confira novamente antes de lançar.
+
+`--cwd` é obrigatório. `--base` só é obrigatório com `--new-workspace worktree`; quando fornecido, sempre precisa resolver para um commit no Git do `--cwd`. `--new-workspace local` e execução no workspace atual podem omiti-lo. `--provider` inclui o modelo, `--mode` é explícito e os parâmetros exigidos por provider vêm do JSON. Para Astra, `--no-cheaper-eligible` registra a avaliação humana de que nenhum executor mais barato atende o piso. Essa flag não substitui as demais verificações.
+
+A função pura `decide(task, policy, quotas, running_agents, restricted)` recebe o instante ISO em `task.now` e a confirmação Git em `task.base_exists`. `restricted` contém `enabled` e `allowed_models`; a CLI faz a classificação por caminho, marcador e checkout principal do worktree. Nenhuma quota reduz o piso de risco alto.
+
+Uma tarefa pesada do Codex por vez, conforme `concurrency` no JSON. Lance em sequência: preflight, run, preflight, run. `--planned-heavy N` soma os pesados adicionais já planejados que ainda não aparecem no snapshot; o padrão é zero. A coleta global inclui agentes de outros diretórios e workspaces em background. Qualquer estado diferente de `idle`, `closed` e `error` conta como ativo.
+
+`--short-task` declara uma tarefa curta para a exceção nos 20 min antes do reset, definida em `quota.reset_exception`. A exceção exige `resets_at` válido na janela de cinco horas; não vale para limite semanal nem dispensa a verificação de concorrência.
+
+OpenCode gratuito não tem medidor oficial: sua quota é `unmetered`, sem inventar leitura `ok` e sem bloquear por quota ausente. Claude/Codex usam assinaturas, não APIs via gateway. As classes `acesso_dados`, a nota institucional, a família do revisor, a ordem de revisão de risco médio e `limite_fallback` continuam documentados no JSON; o preflight não os fiscaliza. O orquestrador aplica essas regras e verifica os termos e a configuração de treino das contas.
+
+Para simular sem alterar o HOME, use `--quota-dir <pasta>`, `--agents-file <snapshot.json>` e `--now <ISO-com-fuso>`. O snapshot de agentes aceita uma lista JSON ou um objeto com `agents`; a quota segue o contrato da ADR-0002. Arquivo ausente, inválido ou coleta indisponível gera estado desconhecido, nunca uma lista vazia presumida. Esses overrides são entradas de simulação sob controle do operador, não uma fronteira de segurança. Alternativas só aparecem se passarem as mesmas verificações e mantiverem o piso de risco.
 
 Antes de escolher, olhe a franquia:
 
@@ -25,7 +46,7 @@ Antes de escolher, olhe a franquia:
 - Antigravity: consulta manual pelo Felipe no app ou CLI oficial. O AI OS não atualiza nem consulta essa franquia.
 - No Paseo: `paseo usage`.
 
-**GPT-6 Astra (Codex), usar com muito cuidado.** Uma revisão somente leitura com `gpt-6-astra` (thinking padrão) consumiu 27% da janela de 5h do Codex em 09/11; antes, 3 agentes Astra pararam por limite (I-11). Só para risco alto quando nenhum executor mais barato atinge o piso de qualidade, sempre com `--thinking low` ou `medium` explícito, uma tarefa por vez (a regra de uma por vez vale para agentes Codex pesados, I-23) e com franquia Codex 5h < 50% (franquia `unknown` bloqueia o Astra). Modelos Codex (`paseo provider models codex`): gpt-6.1-sol (workhorse), gpt-6-astra (frontier), gpt-6.1-terra (custo não medido), gpt-6-sol, gpt-6-luna (rápido e barato), gpt-5.6-sol/terra/luna (gerações antigas).
+As condições do Astra, os limiares e a validade das leituras ficam somente em `roteamento.json`. Consulte os IDs disponíveis com `paseo provider models codex`.
 
 **Decomposição para economia.** O orquestrador quebra a tarefa e manda cada parte ao modelo mais barato que atinge o piso de qualidade: Haiku para checagens, inventários e verificações mecânicas; Sonnet nativo (subagente do Claude Code) para docs e implementação de rotina; Opus só para orquestração e decisão de risco alto. Gemini via AI Studio permanece como experimento futuro separado.
 
@@ -46,8 +67,8 @@ Um Claude aberto **dentro do Paseo** recebe notificações dos filhos (acorda qu
 ## Comandos úteis
 
 ```sh
-paseo run --provider codex/gpt-6.1-sol --thinking medium --new-workspace worktree --worktree-slug <nome> --base <branch> "<tarefa>"   # agente novo em worktree próprio (--thinking explícito no Codex)
-paseo run --provider opencode/opencode/deepseek-v4.1-flash-free --new-workspace worktree "<tarefa>"
+paseo run --provider codex/gpt-6.1-sol --mode auto-review --thinking medium --new-workspace worktree --worktree-slug <nome> --base <branch> --cwd <projeto> "<tarefa>"   # após allow do preflight
+paseo run --provider opencode/opencode/deepseek-v4.1-flash-free --mode build --new-workspace worktree --base <branch> --cwd <projeto> "<tarefa>"   # após allow do preflight
 paseo ls                     # agentes (atenção: "running" pode ser espera de aprovação)
 paseo wait <id>              # mostra se está esperando aprovação ou terminou
 paseo logs <id>              # o que o agente fez
@@ -127,7 +148,7 @@ O `./install.sh --only codex` mantém o MCP do ai-memory via `mcp-bridge`, com b
 - O `./install.sh` registra SessionStart no Claude e no Codex (Python >= 3.11). No Codex, depois da instalação, abra `/hooks` → trust. O ai-memory deve estar instalado e continuar em modo allowlist: sem marcador válido, não captura.
 - Em repositórios dentro das raízes de `config/ai-os-memory.toml`, o hook cria `.ai-memory.toml` local, ignora-o no Git e exclui o checkout do Claude-Mem. Preserva marcadores existentes. Worktrees herdam a classificação do checkout principal; SEPLAN/SGG usam workspace `restrito`, os demais `pessoal`. O projeto é derivado pelo ai-memory, sem nome fixado no marcador.
 - Sem Git, a raiz do projeto é o segundo nível abaixo da raiz configurada (ex.: `~/Workspace/projetos/sgg-controle` ou `~/Workspace/seplan/ats`), mesmo abrindo uma subpasta. A raiz e as categorias (`projetos`, `seplan`) são ignoradas. No Paseo, só Git é aceito. Um subrepositório herda o marcador ancestral do projeto, sem duplicá-lo.
-- O aviso de projeto restrito orienta a delegação; não bloqueia tecnicamente modelos. Claude/Codex significam assinaturas: Felipe deve conferir e desativar treino nas contas Claude/ChatGPT. Do OpenCode Zen/Console, só os dois IDs gratuitos listados na política estão permitidos.
+- O aviso de projeto restrito orienta a delegação; o preflight nega modelos fora de `allowed_models`. Claude/Codex significam assinaturas: Felipe deve conferir e desativar treino nas contas Claude/ChatGPT. Do OpenCode Zen/Console, só os dois IDs gratuitos listados na política estão permitidos.
 - Os hooks do Claude rodam em paralelo: o primeiro briefing pode exigir abrir outra sessão após criar o marcador. O instalador preserva os hooks do ai-memory; marcadores existentes também mantêm sua configuração de briefing.
 - Ao terminar uma sessão, o agente deixa uma nota de estado; o próximo recebe o handoff sozinho.
 - Algo antigo que o ai-memory não sabe: a skill `memory-backfill` busca no Claude-Mem, confere e grava.

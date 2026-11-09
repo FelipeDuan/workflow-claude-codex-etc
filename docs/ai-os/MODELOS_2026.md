@@ -23,6 +23,6 @@ Registro de modelos vistos na versão 1.5.3 em 09/11. É uma referência histór
 
 O Google não publica pesos por modelo. A tarefa T1 de 09/11 consumiu 3% da janela de 5h e 1% da semanal do pool "Gemini Models"; é uma única medição. Plano, preço, franquia atual, retenção, treino e jurisdição da conta não foram confirmados. Fonte de modelos: https://antigravity.google/docs/models.
 
-## Regra de ranking
+## Política de roteamento vigente
 
-Role é independente de modelo; classificar tarefa por risco/escopo/ambiguidade e medir retrabalho. Frontier para decisões arriscadas; modelo econômico para tarefas com testes rápidos e baixo blast radius. Revisão cega por família diferente. Não tornar custo de API do Argon ou Claude API equivalente a consumo da assinatura.
+A fonte canônica é [`roteamento.json`](roteamento.json). Consulte ali os modelos elegíveis por risco, os limiares, as condições do Astra e as regras de segurança. Antes de cada `paseo run`, execute `python3 scripts/preflight.py ...` com os argumentos do lançamento e `--risk`; o procedimento está em [USO-DIARIO.md](USO-DIARIO.md). Este documento conserva fatos e medições históricas, sem definir regras de despacho.
