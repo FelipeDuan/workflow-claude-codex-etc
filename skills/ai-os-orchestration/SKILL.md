@@ -35,13 +35,20 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 From a terminal, substitute the current branch, confirmed provider/model, and a provider-valid mode:
 
 ```sh
+# Open the task first; --cwd is required and identifies the target project:
+python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py open "<short objective>" --risk <low|medium|high> --cwd <project>
+
 # For Codex (--thinking is mandatory, e.g. low|medium):
-paseo run --no-wait --title <t> --provider codex/<model> --mode auto-review --thinking <low|medium> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+paseo run --no-wait --title "[<task_id>] <t>" --provider codex/<model> --mode auto-review --thinking <low|medium> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
 
 # For other providers:
-paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+paseo run --no-wait --title "[<task_id>] <t>" --provider <provider/model> --mode <mode> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+
+# Link the returned agent ID; use review or fix for those roles:
+python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py link <task_id> <agent_id> --role exec
 ```
 
+- The title prefix must be literal, e.g. `[T-20261109-01] <t>`. Paseo `ls --json` and `inspect --json` do not expose labels; keep both the explicit link and the prefix. Use the same task ID for its reviewers and fixes.
 - Always specify `provider/model` (I-19) and `--base` (I-17); a new worktree otherwise starts from the default branch.
 - Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`. Always pass explicit `--thinking` (mandatory on every Codex run, e.g. `--provider codex/gpt-6.1-sol --thinking medium`).
 - Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
@@ -65,10 +72,16 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 2. If sandbox protection blocks a commit, the verifying orchestrator commits the checked result (I-05); preserve the sandbox.
 3. Integrate the verified result with merge/cherry-pick into the intended branch, then run the relevant checks there. Preserve unrelated changes.
 4. After successful integration, clean up with `paseo delete <id>`, `git worktree remove <path>`, then `git branch -D <branch>`. Confirm the exact targets are integrated and disposable; follow AGENTS.md's confirmation requirements for destructive actions.
-5. In the workflow-ai repo, append one JSON line per task to `docs/ai-os/telemetria.jsonl` using ADR-0002's schema; elsewhere, include the same record in the final summary. Record observed values only, using `null` for unavailable measurements:
+5. Record the human/orchestrator verdict with the task CLI after verification. Agent `idle` or `closed` is not acceptance. `docs/ai-os/telemetria.jsonl` is legacy history; new verdicts go to the task ledger outside Git:
 
-```json
-{"date":"YYYY-MM-DD","task":"<task>","category":"<category>","risk":"low","complexity":"low","divisible":false,"harness":"<harness>","model":"<model>","duration_s":null,"tests_passed":null,"human_corrections":0,"handoff":false,"outcome":"<outcome>","notes":"<evidence or unavailable measurements>"}
+```sh
+python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py close <task_id> <aceito|retrabalho|rejeitado> --nota "<verification evidence>"
+```
+
+Reopen a closed task before relaunching or linking another agent to it:
+
+```sh
+python3 ~/Workspace/tools/workflow-ai/scripts/ai_os_task.py reopen <task_id> --motivo "<reason for another attempt>"
 ```
 
 ## Antigravity (Gemini)

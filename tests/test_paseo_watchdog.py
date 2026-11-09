@@ -516,6 +516,13 @@ class WatchdogTests(unittest.TestCase):
                 self.run_watchdog(fake)
                 self.assertNotIn(('permit', 'allow', 'a1', 'req1'), fake.calls)
 
+    def test_saneamento_mascara_antes_de_truncar(self):
+        for secret in ['sk-proj-abc123', 'ghp_abc123', 'gho_abc123', 'xoxb-123-abc',
+                       'Bearer abc123.xyz', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.assinatura',
+                       'pessoa@example.com', '/Users/pessoa/privado', '/home/pessoa/privado', '~/privado']:
+            with self.subTest(pattern=secret):
+                self.assertEqual(watchdog._clean('a' * 117 + ' ' + secret, 120), 'a' * 117 + ' **')
+
     def test_inspect_falho_nunca_aprova_pelo_cwd_da_listagem(self):
         agent = self.agent()
         fake = FakePaseo([agent], [self.permit()])

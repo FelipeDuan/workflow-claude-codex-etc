@@ -88,7 +88,7 @@ Cada linha é um objeto JSON independente com `schema_version = 1`, `type`, `occ
 
 O histórico não inclui pedidos, mensagens ou cwd. Todos os agentes têm `title = null`; o projeto aparece apenas pelo nome da pasta, ou como `"restrito"` em projetos restritos. Na CLI verificada, `ls --json` e `inspect --json` não expõem labels: `task_id` fica `null` com justificativa. Se uma versão passar a expor `labels.task`, o vigia aproveita esse valor. Desligue só o histórico com `AI_OS_HISTORY=0` no ambiente do processo do vigia; notificações e decisões de permissão continuam funcionando. Leitores devem ignorar linhas inválidas: uma interrupção pode deixar a última linha incompleta. O vigia separa essa linha antes de anexar o próximo registro. Falhas de escrita são registradas em `watchdog.log` e o ciclo prossegue; `--dry-run` também não escreve histórico.
 
-Referência de medição: `docs/research/PROTOCOLO-GQM.md`, contrato de dados e perguntas Q2/Q4/Q5. Esse protocolo ainda não está presente neste checkout.
+Referência de medição: `docs/research/PROTOCOLO-GQM.md`, contrato de dados e perguntas Q2/Q4/Q5.
 
 Para ver o estado e desligar:
 
@@ -102,6 +102,23 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.felipe.ai-os.paseo-w
 ```
 
 O vigia só aprova o que a política permitir. Aprovar ou negar o resto continua sendo decisão sua, pelo app ou por `paseo permit allow|deny`.
+
+## Tarefas e relatório de métricas
+
+Antes de delegar, abra uma tarefa no checkout do workflow-ai e use o ID impresso como prefixo do título do agente, por exemplo `[T-20261109-01] Corrigir validação`. Registre também o vínculo explícito; a CLI do Paseo não expõe labels. `--cwd` é obrigatório e identifica o projeto de destino: em caminhos restritos, o objetivo é gravado como `restrito`.
+
+```sh
+python3 scripts/ai_os_task.py open "Corrigir validação" --risk medium --cwd <projeto>
+python3 scripts/ai_os_task.py link <task_id> <agent_id> --role exec
+python3 scripts/ai_os_task.py close <task_id> aceito --nota "Testes e diff conferidos"
+python3 scripts/ai_os_task.py list --open
+python3 scripts/metrics/report.py
+python3 scripts/metrics/report.py --since 2026-11-02 --until 2026-11-09
+```
+
+O veredito (`aceito`, `retrabalho` ou `rejeitado`) é decisão humana ou do orquestrador; o estado final do agente não o substitui. Antes de relançar ou vincular outro agente a uma tarefa fechada, use `reopen <task_id> --motivo "..."`. Os eventos ficam em `<state_dir>/history/tasks-AAAA-MM.jsonl`, com mês local e instantes UTC.
+
+O relatório semanal padrão gera `RELATORIO.md` e `relatorio.json` em `<state_dir>/relatorios/<inicio>-<fim>/`; `--out DIR` troca o destino. Datas em `--since` e `--until` incluem os dois dias; com instantes ISO, o fim é exclusivo. `state_dir` é `~/.local/state/ai-os`, ou `AI_OS_STATE_DIR` quando definido. `telemetria.jsonl` permanece como histórico legado. Os relatórios publicam cobertura e motivos dos dados desconhecidos; o tempo de interação é um proxy estimado, não uma medida de esforço humano.
 
 ## Memória
 

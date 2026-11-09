@@ -1,7 +1,8 @@
 """Vigia (watchdog.log), commits (git log), telemetria manual e snapshots de franquia.
 
-Commits: só conta por período, por repo (pseudonimizado) e por família do
-trailer Co-Authored-By; nenhuma mensagem, autor ou hash é gravado.
+Commits: agrega por período, repo (pseudonimizado) e família do trailer
+Co-Authored-By. Só o snapshot privado separado guarda SHA e patch-id;
+mensagens e autores não são gravados.
 """
 import collections
 import glob
@@ -11,6 +12,7 @@ import re
 import subprocess
 
 from paseo import read_watchdog
+from metrics_common import parse_ts
 
 # trailers que não casam com nenhuma família viram 'outro' (podem ser nomes de pessoas)
 FAMILIAS = (('Opus', 'Claude Opus'), ('Sonnet', 'Claude Sonnet'), ('Haiku', 'Claude Haiku'),
@@ -53,7 +55,10 @@ def find_roots(workspace, depth=3):
     return roots
 
 
-def commits(ctx, since, runner=None):
+def commits(ctx, since, runner=None, dedup='patch-id', snapshot=None):
+    """Deduplica por SHA e pelo conteúdo estável do patch dentro de cada repo."""
+    if dedup not in ('patch-id', 'sha'):
+        raise ValueError('dedup deve ser patch-id ou sha')
     def default_runner(cmd):
         ctx.reads['subprocessos'] += 1
         return subprocess.run(cmd, capture_output=True, text=True, errors='replace').stdout
@@ -61,33 +66,65 @@ def commits(ctx, since, runner=None):
     roots = find_roots(ctx.workspace)
     com = collections.defaultdict(collections.Counter)
     seen = set()
+    seen_patches = set()
     repos = collections.Counter()
     until = ctx.until.isoformat()
+    if dedup == 'patch-id':
+        since = min(since, *(a for a, _ in ctx.periods.values()))
+    candidates = []
+    patch_id_failures = 0
+    fallback_sha_count = 0
     for r in sorted(roots):
         o = runner(['git', '-C', r, 'log', '--all', f'--since={since}', f'--until={until}',
-                    '--date=short', '--format=@@%H|%ad%n%B@@END'])
-        n = 0
+                    '--date=short', '--format=@@%H|%ad%n%B@@END' if dedup == 'sha'
+                    else '--format=@@%H|%aI%n%B@@END'])
+        patches = {}
+        if dedup == 'patch-id':
+            diff = runner(['git', '-C', r, 'log', '--all', f'--since={since}', f'--until={until}',
+                           '--pretty=medium', '--patch', '--no-ext-diff', '--no-textconv', '--binary'])
+            ctx.reads['subprocessos'] += 1
+            try:
+                stable = subprocess.run(['git', 'patch-id', '--stable'], input=diff,
+                                        capture_output=True, text=True, check=True).stdout
+                patches = {sha: patch for patch, sha in (line.split() for line in stable.splitlines())}
+            except (OSError, subprocess.CalledProcessError, ValueError):
+                patch_id_failures += 1
         for blk in o.split('@@END'):
             blk = blk.strip()
             if not blk.startswith('@@'):
                 continue
             h, rest = blk[2:].split('\n', 1) if '\n' in blk else (blk[2:], '')
             sha, d = h.split('|')
-            if sha in seen:
-                continue
-            seen.add(sha)
-            n += 1
-            p = ctx.per(d)
-            com[p]['total'] += 1
-            co = set(re.findall(r'^Co-Authored-By:\s*([^<\n]+?)\s*<', rest, re.I | re.M))
-            if not co:
-                com[p]['sem_coautor'] += 1
-            for c in co:
-                fam_ = family(c.strip())
-                com[p]['co:' + (c.strip() if fam_ != 'outro' else 'outro')] += 1
-        if n:
-            repos[ctx.repo_label(r)] += n
-    return dict(repos_com_git=len(roots), repos_com_commits=len(repos), commits_por_repo=dict(repos),
+            candidates.append((d, sha, r, rest, patches.get(sha)))
+    # Buscar baseline antes de S1 evita atribuir à semana nova um patch antigo.
+    if dedup == 'patch-id':
+        candidates.sort(key=lambda c: (parse_ts(c[0]), c[1], c[2]))
+    for d, sha, r, rest, patch in candidates:
+        if sha in seen:
+            continue
+        seen.add(sha)
+        if patch and (r, patch) in seen_patches:
+            continue
+        if patch:
+            seen_patches.add((r, patch))
+        elif dedup == 'patch-id':
+            fallback_sha_count += 1
+        repos[ctx.repo_label(r)] += 1
+        day = d[:10]
+        p = ctx.per(day) if dedup == 'sha' else next(
+            (name for name, (a, b) in ctx.periods.items() if a <= day <= b), 'outro')
+        if snapshot is not None:
+            snapshot.append(dict(repo=ctx.repo_label(r), sha=sha, patch_id=patch,
+                                 author_date=d, periodo=p))
+        com[p]['total'] += 1
+        co = set(re.findall(r'^Co-Authored-By:\s*([^<\n]+?)\s*<', rest, re.I | re.M))
+        if not co:
+            com[p]['sem_coautor'] += 1
+        for c in co:
+            fam_ = family(c.strip())
+            com[p]['co:' + (c.strip() if fam_ != 'outro' else 'outro')] += 1
+    return dict(dedup=dedup, patch_id_failures=patch_id_failures, fallback_sha_count=fallback_sha_count,
+                repos_com_git=len(roots), repos_com_commits=len(repos), commits_por_repo=dict(repos),
                 por_periodo={p: dict(v) for p, v in com.items()})
 
 
@@ -116,6 +153,7 @@ def quota(ctx, qdir):
     return out
 
 
-def collect(ctx, watchdog_log, paseo_agents, since, telemetry_path, quota_dir):
-    return dict(vigia=vigia(ctx, watchdog_log, paseo_agents), commits=commits(ctx, since),
+def collect(ctx, watchdog_log, paseo_agents, since, telemetry_path, quota_dir, dedup='patch-id', snapshot=None):
+    return dict(vigia=vigia(ctx, watchdog_log, paseo_agents),
+                commits=commits(ctx, since, dedup=dedup, snapshot=snapshot),
                 telemetria=telemetria(ctx, telemetry_path), quota=quota(ctx, quota_dir) if quota_dir else {})

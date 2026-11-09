@@ -73,6 +73,14 @@ _SECRET = re.compile(
     r"(?i)\b(token|password|passwd|secret|api[_-]?key|authorization)\b"
     r"(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"
 )
+_SENSITIVE = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_-]+|gh[po]_[A-Za-z0-9_]+|xox[a-z]-[A-Za-z0-9-]+)"
+    r"|\bBearer\s+[A-Za-z0-9._~+/-]+=*"
+    r"|\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"|[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+"
+    r"|(?:/Users/|/home/|~/)[^\s\"'<>]+",
+    re.IGNORECASE,
+)
 _STATUS_PRIORITY = {
     "aguardando_aprovacao": 0,
     "erro": 1,
@@ -132,9 +140,10 @@ def _parse_ts(value) -> datetime | None:
 
 
 def _clean(value, limit: int = DESC_LIMIT) -> str:
-    """Remove controles, colapsa espaços, mascara segredos e corta em `limit`."""
+    """Remove controles e mascara segredos, e-mails e caminhos antes do corte."""
     text = _CONTROL.sub("", str(value if value is not None else ""))
     text = re.sub(r"\s+", " ", text).strip()
+    text = _SENSITIVE.sub("***", text)
     text = _SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
     return text[:limit]
 

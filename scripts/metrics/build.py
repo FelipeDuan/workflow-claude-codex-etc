@@ -6,12 +6,14 @@ Uso (reproduz o briefing de 09/11/2026):
         --archive-dir ~/.local/state/ai-os/arquivo-agentes/20261109 --out DIR
 
 Padrão de saída: ~/.local/state/ai-os/metricas/<AAAAMMDD do --until>/ (fora do repo).
-Só stdlib. Só agrega contagens; projetos restritos saem como "restrito".
+Só stdlib. Agregados sem hashes; snapshot privado de commits separado.
+Projetos restritos saem como "restrito".
 """
 import argparse
 import collections
 import datetime
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -260,7 +262,9 @@ def main(argv=None):
     ap.add_argument('--quota-dir', help='padrão: <state-dir>/quota')
     ap.add_argument('--telemetry', help='padrão: docs/ai-os/telemetria.jsonl do repo')
     ap.add_argument('--restricted-config', help='toml com [restricted].paths (padrão: config/ai-os-memory.toml do repo)')
-    ap.add_argument('--commits-since', help='padrão: início de S1')
+    ap.add_argument('--commits-since', help='padrão: menor início dos períodos; patch-id sempre inclui a baseline')
+    ap.add_argument('--dedup', choices=('patch-id', 'sha'), default='patch-id',
+                    help='deduplicação de commits (padrão: patch-id; sha reproduz o método antigo)')
     a = ap.parse_args(argv)
 
     tz = parse_tz(a.tz)
@@ -280,6 +284,7 @@ def main(argv=None):
     qd = Path(a.quota_dir).expanduser() if a.quota_dir else state / 'quota'
     tel = Path(a.telemetry).expanduser() if a.telemetry else REPO / 'docs/ai-os/telemetria.jsonl'
     t0 = time.perf_counter()
+    commits_snapshot = []
 
     with ctx.stage('claude'):
         c = claude.collect(ctx, claude_dir)
@@ -289,11 +294,18 @@ def main(argv=None):
         p = paseo.collect(ctx, Path(a.archive_dir).expanduser() if a.archive_dir else None, wd, aj,
                           live=not a.no_paseo_live)
     with ctx.stage('misc'):
-        m = misc.collect(ctx, wd, p['agents'], a.commits_since or ctx.periods['S1'][0], tel, qd)
+        commits_since = a.commits_since or (ctx.periods['S1'][0] if a.dedup == 'sha'
+                                           else min(a for a, _ in ctx.periods.values()))
+        m = misc.collect(ctx, wd, p['agents'], commits_since, tel, qd,
+                         dedup=a.dedup, snapshot=commits_snapshot)
     with ctx.stage('sanity'):
         s = sanity.collect(ctx, claude_dir, c, x, p)
     b = baseline_cmp(ctx, c, x)
 
+    fd = os.open(out / 'commits-snapshot.json', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        os.fchmod(f.fileno(), 0o600)
+        json.dump(commits_snapshot, f, indent=1, ensure_ascii=False)
     for name, obj in (('claude', c), ('codex', x), ('paseo', p), ('misc', m), ('sanity', s), ('baseline_cmp', b)):
         (out / f'{name}.json').write_text(json.dumps(obj, indent=1, ensure_ascii=False))
     until_iso = until.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')

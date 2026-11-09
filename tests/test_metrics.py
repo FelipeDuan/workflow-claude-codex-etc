@@ -3,9 +3,12 @@ import contextlib
 import datetime
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +71,7 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(ctx.repo_label('/home/u/Workspace/cliente-x/api'), 'restrito')
         self.assertEqual(ctx.repo_label('/home/u/Workspace/publico/api'), 'publico/api')
 
+    @unittest.skipIf(sys.version_info < (3, 11), 'tomllib exige Python >= 3.11')
     def test_load_restricted_expande_til(self):
         with tempfile.TemporaryDirectory() as d:
             t = Path(d) / 'p.toml'
@@ -198,6 +202,102 @@ class PaseoTests(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
+    def test_patch_id_por_repo_e_primeiro_exemplar_na_baseline(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1')
+            original = None
+            for nome, dia in [('publico', '2026-10-10'), ('outro', '2026-10-25')]:
+                repo = home / 'Workspace' / nome
+                repo.mkdir(parents=True)
+
+                def git(*args):
+                    return subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Teste',
+                                           '-c', 'user.email=teste@example.invalid',
+                                           '-c', 'core.hooksPath=/dev/null', *args],
+                                          env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+                env['GIT_AUTHOR_DATE'] = env['GIT_COMMITTER_DATE'] = dia + 'T12:00:00Z'
+                git('init')
+                (repo / 'mesmo-arquivo').write_text('mesmo conteúdo\n')
+                git('add', '.')
+                git('commit', '-m', nome)
+                if nome == 'publico':
+                    original = git('rev-parse', 'HEAD')
+                    git('branch', 'baseline')
+                    env['GIT_AUTHOR_DATE'] = env['GIT_COMMITTER_DATE'] = '2026-10-25T12:00:00Z'
+                    git('commit', '--amend', '--no-edit', '--reset-author')
+                    self.assertNotEqual(original, git('rev-parse', 'HEAD'))
+            snapshot = []
+            out = misc.commits(ctx_for(home), '2026-10-22', snapshot=snapshot)
+            self.assertEqual(out['por_periodo']['baseline']['total'], 1)
+            self.assertEqual(out['por_periodo']['S1']['total'], 1)
+            self.assertEqual(out['commits_por_repo'], {'publico': 1, 'outro': 1})
+            self.assertEqual(len(snapshot), 2)
+            self.assertEqual({row['patch_id'] for row in snapshot}, {snapshot[0]['patch_id']})
+            self.assertEqual({row['periodo'] for row in snapshot}, {'baseline', 'S1'})
+            self.assertEqual(next(row['sha'] for row in snapshot if row['repo'] == 'publico'), original)
+            self.assertNotIn(original, json.dumps(out))
+            self.assertNotIn(str(home), json.dumps(snapshot))
+
+    def test_patch_id_falha_recorre_a_sha(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            (home / 'Workspace' / 'publico' / '.git').mkdir(parents=True)
+            rows = '@@a1|2026-10-25\nentrega\n@@END\n@@a2|2026-10-25\nentrega\n@@END\n'
+            for error in (OSError('indisponível'), subprocess.CalledProcessError(1, ['git', 'patch-id'])):
+                with self.subTest(error=type(error).__name__), mock.patch.object(
+                        misc.subprocess, 'run', side_effect=error):
+                    snapshot = []
+                    out = misc.commits(ctx_for(home), '2026-10-22', runner=lambda _: rows, snapshot=snapshot)
+                    self.assertEqual(out['por_periodo']['S1']['total'], 2)
+                    self.assertEqual(out['patch_id_failures'], 1)
+                    self.assertEqual(out['fallback_sha_count'], 2)
+                    self.assertTrue(all(row['patch_id'] is None for row in snapshot))
+
+    def test_patch_id_deduplica_cherry_pick(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            repo = home / 'Workspace' / 'publico'
+            repo.mkdir(parents=True)
+            env = dict(os.environ, GIT_AUTHOR_DATE='2026-10-25T12:00:00Z',
+                       GIT_COMMITTER_DATE='2026-10-25T12:00:00Z',
+                       GIT_CONFIG_NOSYSTEM='1')
+
+            def git(*args):
+                return subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Teste',
+                                       '-c', 'user.email=teste@example.invalid',
+                                       '-c', 'core.hooksPath=/dev/null', *args],
+                                      env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+            git('init')
+            (repo / 'base').write_text('base\n')
+            git('add', '.')
+            git('commit', '-m', 'base')
+            base = git('rev-parse', 'HEAD')
+            git('checkout', '-b', 'original')
+            (repo / 'entrega').write_text('entrega\n')
+            git('add', '.')
+            git('commit', '-m', 'entrega')
+            original = git('rev-parse', 'HEAD')
+            git('checkout', '-b', 'copia', base)
+            env['GIT_COMMITTER_DATE'] = '2026-10-26T12:00:00Z'
+            git('cherry-pick', original)
+            self.assertNotEqual(git('rev-parse', 'HEAD'), original)
+            ctx = ctx_for(home)
+            antigo = misc.commits(ctx, '2026-10-22', dedup='sha')
+            atual = misc.commits(ctx, '2026-10-22')
+            self.assertEqual(antigo['por_periodo']['S1']['total'], 3)
+            self.assertEqual(atual['por_periodo']['S1']['total'], 2)
+            self.assertEqual(atual['dedup'], 'patch-id')
+            # Um amend em S2 não desloca de S1 o conteúdo já entregue.
+            env['GIT_AUTHOR_DATE'] = '2026-11-03T12:00:00Z'
+            env['GIT_COMMITTER_DATE'] = '2026-11-03T12:00:00Z'
+            git('commit', '--amend', '--no-edit', '--reset-author')
+            atualizado = misc.commits(ctx, '2026-10-22')
+            self.assertEqual(atualizado['por_periodo']['S1']['total'], 2)
+            self.assertNotIn('S2', atualizado['por_periodo'])
+
     def test_family_nao_expoe_nome_de_pessoa(self):
         self.assertEqual(misc.family('Claude Opus 5.5'), 'Claude Opus')
         self.assertEqual(misc.family('Codex'), 'Codex/GPT')
@@ -218,7 +318,7 @@ class MiscTests(unittest.TestCase):
                 if cmd[2].endswith('publico'):
                     return bloco.format(sha='a1', dia='2026-10-25') + sem.format(sha='a2', dia='2026-11-03')
                 return bloco.format(sha='a1', dia='2026-10-25') + sem.format(sha='r1', dia='2026-11-03')  # a1 repetido
-            out = misc.commits(ctx, '2026-10-22', runner=runner)
+            out = misc.commits(ctx, '2026-10-22', runner=runner, dedup='sha')
             self.assertEqual(out['repos_com_git'], 2)
             self.assertEqual(out['commits_por_repo'], {'publico': 2, 'restrito': 1})
             self.assertEqual(out['por_periodo']['S1']['total'], 1)
@@ -255,6 +355,7 @@ class MiscTests(unittest.TestCase):
 
 
 class BuildEndToEndTests(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (3, 11), 'tomllib exige Python >= 3.11')
     def test_saida_completa_sem_vazar_dados(self):
         with tempfile.TemporaryDirectory() as d:
             home = Path(d) / 'home'
@@ -267,15 +368,41 @@ class BuildEndToEndTests(unittest.TestCase):
             cfg = Path(d) / 'cfg.toml'
             cfg.write_text(f'[restricted]\npaths = ["{home}/Workspace/sigilo"]\n')
             (home / '.local/state/ai-os').mkdir(parents=True)
-            with contextlib.redirect_stdout(io.StringIO()):
+            repo = home / 'Workspace/sigilo'
+            repo.mkdir(parents=True)
+            (repo / 'arquivo').write_text(SEGREDO)
+            env = dict(os.environ, GIT_AUTHOR_DATE='2026-11-03T12:00:00Z',
+                       GIT_COMMITTER_DATE='2026-11-03T12:00:00Z', GIT_CONFIG_NOSYSTEM='1')
+            for args in [('init',), ('add', '.'), ('commit', '-m', SEGREDO)]:
+                subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Teste',
+                                '-c', 'user.email=teste@example.invalid',
+                                '-c', 'core.hooksPath=/dev/null', *args],
+                               env=env, check=True, capture_output=True)
+            original_run = subprocess.run
+
+            def run(cmd, **kwargs):
+                if cmd[:2] == ['git', 'patch-id']:
+                    raise subprocess.CalledProcessError(1, cmd)
+                return original_run(cmd, **kwargs)
+
+            with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(misc.subprocess, 'run', side_effect=run):
                 rc = build.main(['--home', str(home), '--out', str(out), '--until', '2026-11-09T16:00:00Z',
-                                 '--tz', '-03:00', '--no-paseo-live', '--restricted-config', str(cfg),
+                                 '--tz=-03:00', '--no-paseo-live', '--restricted-config', str(cfg),
                                  '--telemetry', str(Path(d) / 'nada.jsonl')])
             self.assertEqual(rc, 0)
             for f in ('claude', 'codex', 'paseo', 'misc', 'sanity', 'baseline_cmp', 'metricas'):
                 self.assertTrue((out / f'{f}.json').exists(), f)
             self.assertTrue((out / 'METRICAS.md').exists())
+            snapshot = json.loads((out / 'commits-snapshot.json').read_text())
+            self.assertEqual(len(snapshot), 1)
+            self.assertEqual(snapshot[0]['repo'], 'restrito')
+            self.assertIsNone(snapshot[0]['patch_id'])
+            self.assertEqual((out / 'commits-snapshot.json').stat().st_mode & 0o777, 0o600)
             m = json.loads((out / 'metricas.json').read_text())
+            self.assertEqual(m['commits']['patch_id_failures'], 1)
+            self.assertEqual(m['commits']['fallback_sha_count'], 1)
+            self.assertNotIn(snapshot[0]['sha'], (out / 'metricas.json').read_text())
+            self.assertNotIn(snapshot[0]['sha'], (out / 'METRICAS.md').read_text())
             self.assertEqual(m['claude']['sessions']['S2'], {'restrito': 1, 'Workspace-pub': 1})
             self.assertEqual(m['execucao']['leitura']['files'] > 0, True)
             tudo = ''.join(p.read_text() for p in out.iterdir())
