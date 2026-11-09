@@ -7,25 +7,21 @@
 - **Claude/Codex:** permanecer nos CLIs oficiais para poder aproveitar as respectivas assinaturas. Detectar modelos/níveis de esforço reais localmente, não presumir que alias do benchmark é ID válido na CLI.
 - **NVIDIA/DeepSeek/GLM/Kimi/Qwen:** possíveis trabalhadores de tarefas de baixo risco (somente material pessoal publicável se termos permitirem). Cotas grátis/termos/privacidade são variáveis e exigem verificação por provedor, não garantia de disponibilidade.
 
-## Antigravity (agy 1.5.3), verificado em 09/11/2026
+## Antigravity (referência para uso direto do Felipe; dados de 09/11/2026)
 
-Modelos em `agy models`: `gemini-4-argon`, `gemini-3.8-flash`, `claude-opus-5-5`, `claude-sonnet-5-5` (cada um com sufixos `-low/-medium/-high`, nível de raciocínio) e `gpt-oss-120b-medium`. Plano e preços: Pro ou Ultra provável, não confirmado (`/usage` não mostra o plano).
+O Antigravity fica fora da automação do AI OS. O uso é direto pelo Felipe no app ou CLI oficial. Nenhum agente, Paseo, Claude ou script invoca `agy`; a FAQ do Google informa que envolver software de terceiros viola os Termos de Serviço e pode levar à suspensão ou encerramento da conta, e que agentes de terceiros não são suportados nos planos de consumidor. Ver [ADR-0006](decisions/0006-antigravity-fora-da-automacao.md) e [FAQ oficial](https://antigravity.google/docs/faq).
 
-| Modelo | Custo relativo | Forças |
+Registro de modelos vistos na versão 1.5.3 em 09/11. É uma referência histórica para o uso direto, não uma recomendação de despacho. Os sufixos `-low/-medium/-high` indicavam níveis de raciocínio.
+
+| Modelo | Custo relativo observado/estimado | Forças descritas na época |
 |---|---|---|
-| gemini-3.8-flash | menor (hipótese) | trivial, volume, leitura longa, contexto 1M, imagem |
-| claude-sonnet-5-5 | médio (hipótese) | implementação rotineira, testes, docs |
-| gemini-4-argon | alto; barra semanal própria (verificado) | segunda opinião de outra família, contexto 1M, imagem/vídeo |
-| claude-opus-5-5 | maior (hipótese) | tarefa difícil; não é revisão de outra família para código escrito por Claude |
-| gpt-oss-120b-medium | desconhecido | fallback; a página de modelos indica remoção em 18/11/2026 |
+| `gemini-3.8-flash` | menor (hipótese) | tarefas simples, volume, leitura longa, contexto 1M, imagem |
+| `claude-sonnet-5-5` | médio (hipótese) | implementação rotineira, testes, documentação |
+| `gemini-4-argon` | alto; barra semanal própria observada | segunda opinião, contexto 1M, imagem/vídeo |
+| `claude-opus-5-5` | maior (hipótese) | tarefas difíceis |
+| `gpt-oss-120b-medium` | desconhecido | fallback; remoção anunciada para 18/11/2026 |
 
-- Pools de franquia (verificado com `agy -p "/usage"`, que não gasta cota): "Gemini Models" e "Claude and GPT models", cada um com janelas de 5h e semanal; "Gemini 4 Argon" tem barra semanal própria. Evidência observável: `agy -p "/usage"` mostra o pool "Claude and GPT models" separado do "Gemini Models". Que o Claude via `agy` gaste cota Google e não a da Anthropic é inferência, sem fonte direta.
-- O Google não publica peso por modelo. A ordem de custo acima vem de preço de API e comportamento esperado; medir `/usage` antes e depois de uma tarefa padrão. `scripts/quota_antigravity.py` grava `~/.local/state/ai-os/quota/antigravity.json` (o vigia roda a cada 5 min).
-- Medição real (09/11): a tarefa T1 (criar `quota_antigravity.py` + 14 testes, Paseo, `gemini-3.8-flash-high`, agente `664de82d`) consumiu 3% da janela de 5h e 1% da semanal do pool "Gemini Models". Uma amostra, não média.
-- Revisão cross-family sem bypass (testado em 09/11, agy 1.5.3): leitura com `gemini-3.8-flash-low` (`agy --mode plan -p "resuma em 1 linha o que faz scripts/quota_antigravity.py"`) respondeu em 11 s sem pedir permissão; revisão posterior de diff com `gemini-4-argon-low` funcionou sem escrever no workspace (~3% do pool Gemini 5h). Com um prompt pedindo para criar `teste.txt` e rodar `touch`, em diretório descartável, o `agy` só gravou um `plan.md` no próprio diretório de dados (`~/.gemini/antigravity-cli/brain/`) e esperou aprovação; nada foi criado no workspace. Limite: teste empírico; rede e MCP não verificados. Sintaxe: o prompt precisa ir colado ao `-p`, depois de `--mode` e `--model` (`agy -p --mode plan "..."` falha); `agy --mode plan -p` não roda shell (git diff é negado em headless; passar o diff no próprio prompt).
-- Não verificado: qual plano a conta tem; se `AI Credit Overages` está em `Always` (pode gerar cobrança; conferir); desempenho por tipo de tarefa (frontend, docs, testes). Preço promocional do Argon vale até 30/11 segundo fontes secundárias.
-- Segurança: ver ADR-0005 (aceito) e I-32/I-33. Risco da tarefa (não confundir com o sufixo de raciocínio): via Paseo só risco baixo, repo sem segredos, worktree novo, revisão do diff, agentes não commitam (orquestrador commita), nunca em projeto restrito.
-- Fontes: https://antigravity.google/docs/models ; https://antigravity.google/docs/plans
+O Google não publica pesos por modelo. A tarefa T1 de 09/11 consumiu 3% da janela de 5h e 1% da semanal do pool "Gemini Models"; é uma única medição. Plano, preço, franquia atual, retenção, treino e jurisdição da conta não foram confirmados. Fonte de modelos: https://antigravity.google/docs/models.
 
 ## Regra de ranking
 

@@ -472,22 +472,24 @@ class WatchdogTests(unittest.TestCase):
         agent['CreatedAt'] = iso(watchdog.datetime.now(timezone.utc) - timedelta(seconds=2))
         self.assertFalse(watchdog.no_delivery(agent))
 
-    def test_quota_cada_cinco_minutos_e_dry_run_sem_sensor(self):
+    def test_quota_cada_cinco_minutos_sem_invocar_antigravity_ou_agy(self):
         self.quota_patch.stop()
         state = watchdog._empty_state()
         log = self.state_dir / 'watchdog.log'
         with patch.object(watchdog.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '{"status":"ok"}', '')) as run:
             watchdog.refresh_quota(state, NOW, False, log)
             watchdog.refresh_quota(state, NOW + timedelta(minutes=4, seconds=59), False, log)
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 1)
             self.assertEqual(run.call_args_list[0].args[0], ['python3', str(ROOT / 'scripts/quota_codex.py'), '--write'])
-            self.assertEqual(run.call_args_list[1].args[0], ['python3', str(ROOT / 'scripts/quota_antigravity.py'), '--write'])
-            self.assertGreater(run.call_args.kwargs['timeout'], 30)  # sensor tem 30s internos
+            self.assertFalse(any(
+                any(arg == 'agy' or Path(arg).name == 'quota_antigravity.py' for arg in call.args[0])
+                for call in run.call_args_list
+            ))
             watchdog.refresh_quota(state, NOW + timedelta(minutes=5), False, log)
-            self.assertEqual(run.call_count, 4)
+            self.assertEqual(run.call_count, 2)
             before = dict(state)
             watchdog.refresh_quota(state, NOW + timedelta(minutes=10), True, log)
-            self.assertEqual(run.call_count, 4)
+            self.assertEqual(run.call_count, 2)
             self.assertEqual(state, before)
 
     def test_quota_falha_ainda_tenta_so_a_cada_cinco_minutos(self):
@@ -496,35 +498,8 @@ class WatchdogTests(unittest.TestCase):
         with patch.object(watchdog.subprocess, 'run', side_effect=subprocess.TimeoutExpired('quota', 30)) as run:
             watchdog.refresh_quota(state, NOW, False, self.state_dir / 'watchdog.log')
             watchdog.refresh_quota(state, NOW + timedelta(minutes=1), False, self.state_dir / 'watchdog.log')
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 1)
         self.assertIn('quota_error', (self.state_dir / 'watchdog.log').read_text())
-
-    def test_quota_resiliencia_mutua_entre_sensores(self):
-        self.quota_patch.stop()
-        log = self.state_dir / 'watchdog.log'
-
-        state1 = watchdog._empty_state()
-        respostas1 = [
-            subprocess.TimeoutExpired('codex', 30),
-            subprocess.CompletedProcess([], 0, '{"status":"ok"}', ''),
-        ]
-        with patch.object(watchdog.subprocess, 'run', side_effect=respostas1) as run:
-            watchdog.refresh_quota(state1, NOW, False, log)
-        self.assertEqual(run.call_count, 2)
-        self.assertIn('quota_error', log.read_text())
-        self.assertIn('quota_codex.py', log.read_text())
-
-        log.unlink(missing_ok=True)
-        state2 = watchdog._empty_state()
-        respostas2 = [
-            subprocess.CompletedProcess([], 0, '{"status":"ok"}', ''),
-            subprocess.CompletedProcess([], 1, '{"status":"error"}', ''),
-        ]
-        with patch.object(watchdog.subprocess, 'run', side_effect=respostas2) as run:
-            watchdog.refresh_quota(state2, NOW, False, log)
-        self.assertEqual(run.call_count, 2)
-        self.assertIn('quota_error', log.read_text())
-        self.assertIn('quota_antigravity.py', log.read_text())
 
     def test_quota_e_chamada_mesmo_quando_paseo_falha(self):
         with patch.object(watchdog, 'run_paseo', side_effect=watchdog.PaseoError('offline')), \

@@ -1,6 +1,6 @@
 # ADR-0005: Antigravity CLI (Gemini) como executor do Paseo
 
-**Status:** Aceito em 2026-11-09 por Felipe, como recomendado. O uso continua sob as restrições abaixo.
+**Status:** Substituída pela ADR-0006 (2026-11-09).
 
 ## Contexto
 

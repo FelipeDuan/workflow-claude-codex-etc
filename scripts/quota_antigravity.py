@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Consulta a franquia do Antigravity CLI via agy -p /usage; --write salva o resultado local."""
+"""Consulta manual da franquia do Antigravity pelo CLI oficial do Felipe.
+
+Não chamar por automação, agentes, Paseo ou scripts do AI OS. A FAQ oficial
+(https://antigravity.google/docs/faq, consultada em 09/11/2026) diz que usar
+software de terceiros para acessar o Antigravity viola os Termos de Serviço e
+pode suspender ou encerrar a conta; envolver `agy` em agentes de terceiros não
+é suportado nos planos de consumidor.
+"""
 
 import json
 from datetime import datetime, timezone

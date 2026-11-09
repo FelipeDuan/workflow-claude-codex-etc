@@ -60,8 +60,7 @@ PENDING_MIN = 2
 STUCK_MIN = 10
 DEDUP_MIN = 10
 CMD_TIMEOUT = 20
-# Maior que os 30s internos do quota_antigravity.py, para o sensor gravar o próprio erro.
-SENSOR_TIMEOUT = 45
+CODEX_SENSOR_TIMEOUT = 45
 DESC_LIMIT = 200
 STATE_KEEP_DAYS = 7
 QUOTA_INTERVAL_MIN = 5
@@ -326,21 +325,20 @@ def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> 
     if last is not None and timedelta(0) <= now - last < timedelta(minutes=QUOTA_INTERVAL_MIN):
         return
     if dry_run:
-        print("[dry-run] atualizaria a franquia: python3 scripts/quota_codex.py --write e python3 scripts/quota_antigravity.py --write")
+        print("[dry-run] atualizaria a franquia: python3 scripts/quota_codex.py --write")
         return
     state["quota_checked_at"] = _iso(now)
-    sensors = ("quota_codex.py", "quota_antigravity.py")
-    for script_name in sensors:
-        try:
-            result = subprocess.run(
-                ["python3", str(REPO_ROOT / "scripts" / script_name), "--write"],
-                capture_output=True, text=True, timeout=SENSOR_TIMEOUT,
-            )
-            payload = parse_json(result.stdout)
-            if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
-                log_event(log_path, now, "quota_error", detalhe=f"sensor {script_name} sem leitura válida")
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            log_event(log_path, now, "quota_error", detalhe=f"falha ao atualizar franquia ({script_name})")
+    script_name = "quota_codex.py"
+    try:
+        result = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / script_name), "--write"],
+            capture_output=True, text=True, timeout=CODEX_SENSOR_TIMEOUT,
+        )
+        payload = parse_json(result.stdout)
+        if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
+            log_event(log_path, now, "quota_error", detalhe=f"sensor {script_name} sem leitura válida")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        log_event(log_path, now, "quota_error", detalhe=f"falha ao atualizar franquia ({script_name})")
 
 
 def _within(path: Path, root: Path) -> bool:

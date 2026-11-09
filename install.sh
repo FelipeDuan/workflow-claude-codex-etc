@@ -305,8 +305,8 @@ plan_own_content() {
         done
     fi
     if want_target antigravity; then
-        # agy lê regras globais em ~/.gemini/config/AGENTS.md e skills declaradas
-        # em ~/.gemini/config/skills.json; reaproveita o ~/.agents/skills do Codex.
+        # Este alvo prepara o uso direto do Felipe no Antigravity; não o aciona.
+        # O agy lê ~/.gemini/config/AGENTS.md e skills.json; usa ~/.agents/skills.
         plan link "$REPO_DIR/AGENTS.md" "$ANTIGRAVITY_DIR/AGENTS.md"
         # Preserva as entradas existentes; só acrescenta a de ~/.agents/skills se faltar.
         agy_skills="$ANTIGRAVITY_DIR/skills.json"

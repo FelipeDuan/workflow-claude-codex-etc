@@ -14,9 +14,9 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 | Figma MCP (Codex) | — | PENDENTE | não consta em `~/.codex/config.toml` | decidir se precisa |
 | Playwright MCP | plugin (Claude) + config.toml (Codex) | INSTALADO MAS NÃO VALIDADO | conectado nos dois | — |
 | OpenCode | 2.0.32 (fixada; npm com integridade sha512, em `~/.opencode`) | CONFIRMADO FUNCIONAL (laboratório) | serviço movido para a porta 49375 (conflito com o ai-memory em 49374); plugin + MCP do ai-memory; descobre as skills de `~/.claude/skills` e `~/.agents/skills`; modelos `opencode/*-free` sem login | política de permissões; AGENTS.md global; provedor econômico com login |
-| Paseo | — | PENDENTE | não instalado | verificar procedência e instalação oficial |
+| Paseo | 0.14.0 (atual; ADR-0003 registrou 0.12.0 na adoção) | CONFIRMADO FUNCIONAL | em uso desde 23/10/2026, conforme ADR-0003 | — |
 | AI-Memory | 3.2.0 (fixada) | EXPERIMENTAL: handoff Claude→Codex ok, Codex→Claude parcial | binário em `~/.local/lib/ai-memory`; LaunchAgent `com.github.akitaonrails.ai-memory` em 127.0.0.1:49374 com bearer token; hooks Claude+Codex em **allowlist** (só repos com `.ai-memory.toml`), `--project-strategy repo-root`; MCP Claude via `mcp-bridge` conectado | resolver lacunas do T2 |
-| Antigravity / Gemini | 1.5.3 | EXPERIMENTAL, integrado (09/11) | `agy` via brew cask; provider `antigravity` no Paseo (só `full-access`, override `--sandbox`); guia de modelos em `MODELOS_2026.md` e na skill; ADR-0005 aceito (09/11) | só baixo/médio risco, fora de projeto restrito; cota via `agy -p "/usage"` |
+| Antigravity / Gemini | 1.5.3 (registro de 09/11) | USO DIRETO PELO FELIPE | app ou CLI oficial; provider do Paseo desabilitado; ADR-0006 aceita e substitui ADR-0005 | nenhum agente, Paseo, Claude ou script do AI OS invoca `agy`; ver FAQ e `MODELOS_2026.md` |
 | DeepSeek Harness | — | PENDENTE | não instalado | só com justificativa |
 | Handoff entre harnesses | ai-memory 3.2.0 | CONFIRMADO FUNCIONAL (laboratório) | Claude → Codex → OpenCode → Claude, ver T2 | testar parada abrupta |
 | Failover automático | — | PENDENTE | — | só depois do handoff manual |
@@ -224,22 +224,12 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 **Depois**
 - M1 (roteamento consultivo + telemetria automática), A/B das skills de design, backlog (Claude Code Setup, Serena, Headroom, Task Observer), desligar a captura do Claude-Mem (meados de novembro), sugestões à Bea.
 
-## Frente: Antigravity CLI (Gemini), 09/11/2026. EXPERIMENTAL
+## Frente: Antigravity (Gemini), 09/11/2026
 
-**Estado:** `agy` 1.5.3 instalado (brew cask) e autenticado; provider `antigravity` do Paseo `available` com 13 modelos. ai-memory (MCP via `mcp-bridge` + hooks) e `install.sh --only antigravity` aplicados.
+**Estado atual:** uso direto pelo Felipe no app ou CLI oficial. O provider do Paseo está desabilitado. Nenhum agente, Paseo, Claude ou script do AI OS invoca `agy`. A decisão está na [ADR-0006](decisions/0006-antigravity-fora-da-automacao.md), que substitui a ADR-0005.
 
-**Verificado**
-- Override `agents.providers.antigravity.command = ["/opt/homebrew/bin/agy","--sandbox"]` aplicado com `paseo reload`, sem reiniciar o daemon (backup `~/.paseo/config.json.bak-20261109`). `agy --sandbox --version` imprime só `1.5.3`.
-- Smoke test pelo Paseo (`gemini-3.8-flash-low`, diretório descartável; sem ID nem artefato guardados): processo com `--sandbox` antes dos flags do provider; arquivo escrito; `ls ~/.ssh` bloqueado (`Operation not permitted`). Bloquear `ls ~/.ssh` não comprova isolamento geral: ferramentas nativas de arquivo, rede e MCP não foram testadas. Uso real bem-sucedido: agente T1 (`664de82d`, `gemini-3.8-flash-high`, criou `scripts/quota_antigravity.py` + 14 testes; consumo em `MODELOS_2026.md`).
-- Alternativa mais segura para revisão cross-family: `agy --mode plan -p "..."` direto, sem bypass (teste de 09/11 em `MODELOS_2026.md`).
-- `agy -p` carregou o AGENTS.md global (`~/.gemini/config/AGENTS.md`), as skills de `~/.agents/skills` (via `~/.gemini/config/skills.json`) e as ferramentas `memory_*`.
-- `ai-memory doctor` no repo: `antigravity-cli 1 local → 1 captured`.
-- Testes: `python3 -m unittest discover -s tests` 83 OK (novo `tests/test_install_antigravity.py`); `scripts/check.sh` 8/8 PASS.
+A FAQ oficial do Antigravity diz que acessar o serviço por software de terceiros viola os Termos de Serviço e pode levar à suspensão ou encerramento da conta. Envolver o CLI em agentes de terceiros não é suportado nos planos de consumidor. Ver [FAQ](https://antigravity.google/docs/faq), consultada em 09/11/2026.
 
-**Decisões em vigor:** via Paseo só risco baixo, repo sem segredos, worktree novo (organização, não isolamento do host), revisão do diff, nunca em projeto restrito (fora de `allowed_models`); revisão cross-family preferencialmente com `agy --mode plan` direto; ver I-32 e ADR-0005 (aceito em 09/11/2026). Astra só com cautela (emenda ao ADR-0002, 09/11).
+**Registro histórico:** a integração foi testada em 09/11/2026; incluiu provider Paseo, sensor de franquia e teste de revisão. A experiência levou à identificação do risco contratual e do I-33. O sensor `scripts/quota_antigravity.py` permanece como ferramenta manual do Felipe. O alvo `install.sh --only antigravity` prepara regras e skills para o uso direto, sem iniciar o CLI.
 
-**Pendências**
-- Franquia e política de dados da conta Google: não confirmadas.
-- O link `~/.gemini/config/AGENTS.md` aponta para este worktree; os outros harnesses apontam para `workflow-ai/AGENTS.md`. Depois do merge em `feat/design-workflow-v1`, rodar `./install.sh --only antigravity` a partir de `workflow-ai/` para alinhar.
-- Subagentes do repo não convertidos para o formato do `agy`; o autoenable do ai-memory (`scripts/ai_memory_autoenable.py`) não cobre o `agy`.
-- Rollback: primeiro desabilitar o provider (`paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]},"antigravity":{"enabled":false,"command":["/opt/homebrew/bin/agy","--sandbox"]}}'` + `paseo reload`; conferir `paseo provider ls`, coluna ENABLED = Disabled). Só depois, se quiser, remover o override. Remover só o `--sandbox` deixaria o provider ativo com bypass total. O schema do Paseo aceita `enabled`, mas o rollback não foi executado; backups de `~/.gemini/config` em `~/.workflow-ai-backup/20261109-agy/`.
+Uma futura via Gemini API pelo Google AI Studio é um experimento separado, ainda não implementado. Se usar o tier gratuito, limitar a dados públicos e nunca enviar conteúdo de projeto restrito.

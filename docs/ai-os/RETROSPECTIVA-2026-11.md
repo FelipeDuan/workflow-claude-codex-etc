@@ -19,18 +19,18 @@ Base: `telemetria.jsonl`, `paseo ls -a` (80 agentes), `~/.local/state/ai-os/{age
 
 Operacional, aplicada nesta rodada
 - Registrar a quinzena em INCIDENTES: ocorrências somadas em I-11 e I-25 (sem duplicar linhas).
-- STATUS: Antigravity 1.5.3 integrado na tabela de componentes; higiene como pendência que exige confirmação.
-- Guia de modelos do Antigravity na skill, em `MODELOS_2026.md` e em `roteamento.json`.
+- STATUS: Antigravity registrado para uso direto de Felipe; provider do Paseo desabilitado conforme ADR-0006.
+- Guia histórico de modelos do Antigravity em `MODELOS_2026.md`; a skill de orquestração não oferece esse executor.
 - Três linhas de telemetria de hoje, só com valores observados.
 
 Operacional, pendente
 - Backfill de telemetria dos agentes desde 26/10 a partir de `paseo ls -a` e `agentes.json`, marcado `"fonte":"backfill"`. Não feito para não inventar duração, tokens ou resultado.
 - Comando que lista `idle`, `error` e `parado` com mais de 3 dias e worktrees sem diff pendente. Listar é seguro; apagar exige confirmação do Felipe.
-- Medir custo real do Antigravity: `agy -p "/usage"` antes e depois de uma tarefa padrão por modelo. `scripts/quota_antigravity.py` está em implantação.
+- Medição automática do Antigravity: cancelada pela ADR-0006. A ferramenta de franquia permanece manual para Felipe.
 - Resolver ou fechar o agente `fotos-fora-do-codigo` (pedido de rede pendente).
 
 Normativa, aguarda Felipe
 - Guarda de franquia: exigir `quota/codex.json` abaixo de ~70% em 5h antes de lançar 2 ou mais agentes Codex pesados (muda regra de roteamento).
 - Tratar OpenCode free como "só para o que pode falhar": sem prazo, sem revisor único, fallback Luna já no prompt (muda o perfil `economico-pessoal`).
 - Telemetria automática pelo vigia (M1) e novos campos `orquestrador_completou` e `motivo_falha` (mudam o esquema da ADR-0002).
-- Aceitar ou ajustar a ADR-0005 (Antigravity em `full-access` com `--sandbox`) e decidir se o perfil entra no roteamento padrão.
+- ADR-0005 foi substituída pela ADR-0006 (2026-11-09), que remove o Antigravity da automação.
