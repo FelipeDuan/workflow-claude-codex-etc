@@ -32,6 +32,9 @@ ENV = {
     "IMPECCABLE_NO_TELEMETRY": "1",
     "IMPECCABLE_NO_UPDATE_CHECK": "1",
     "DO_NOT_TRACK": "1",
+    # Astro 7+ sobe `dev`/`preview` destacados em background quando detecta agente de IA (I-35).
+    "ASTRO_DEV_BACKGROUND": "0",
+    "ASTRO_PREVIEW_BACKGROUND": "0",
 }
 
 CLAUDE_DENY = [
@@ -264,7 +267,7 @@ def codex_env(path, apply):
     prefix = text if (not text or text.endswith("\n")) else text + "\n"
     candidate = prefix + block
 
-    # Só aplica se o resultado for TOML válido, tiver as 3 vars e não mudar mais nada.
+    # Só aplica se o resultado for TOML válido, tiver todas as vars de ENV e não mudar mais nada.
     try:
         parsed = tomllib.loads(candidate)
     except tomllib.TOMLDecodeError as exc:

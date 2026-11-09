@@ -59,6 +59,28 @@ Quando houver divergência, separe o comportamento observado (código, git, test
 
 A coexistência com o Claude-Mem segue as proteções do I-14 e do I-22. O protocolo não cria captura nova.
 
+## Sessões abertas e retomada
+
+Medido nos transcripts do Claude Code (26/10 a 09/11, só mensagens do assistente na conversa principal, deduplicadas por message id). Mede o `cache_write` da primeira mensagem depois de uma pausa, agrupado pelo tamanho da pausa:
+
+| Pausa antes da mensagem | n | Mediana de cache_write | Total |
+|---|---:|---:|---:|
+| < 5 min | 2394 | ~1 mil tokens | 4,47 M |
+| 5 a 60 min | 148 | ~0,8 mil | 0,54 M |
+| > 60 min | 44 | ~224 mil | 11,43 M |
+
+Leitura: depois de mais de uma hora o cache expira e o contexto inteiro é regravado. 44 retomadas longas custaram mais tokens de cache que as 2394 mensagens seguidas. Tokens de cache não são o custo exato da assinatura (o preço é fixo; o que pesa é o limite de uso), então isto indica tendência, não valor em reais.
+
+Sessão parada não chama a API, mas ocupa memória: ~600 MB com os MCPs filhos (medido em 3 sessões, 587 a 621 MB cada).
+
+Recomendação:
+
+- Uma sessão por objetivo.
+- Fechar depois de um checkpoint verificável (STATUS atualizado, handoff ou commit), e não no meio do trabalho. Nada de fechamento automático por tempo.
+- Para retomar depois de mais de uma hora, preferir abrir sessão nova com briefing curto a reabrir uma sessão longa, até o experimento abaixo dizer o contrário.
+
+Pendente no protocolo: experimento A/B/C com a mesma tarefa, comparando (A) retomar a sessão longa, (B) compactar e retomar, (C) sessão nova com briefing. Métricas: cache_write da primeira mensagem, tokens até o primeiro resultado útil e qualidade da retomada. Ainda não executado.
+
 ## Manutenção (sob demanda)
 
 `memory_lint`, revisão dos handoffs pendentes, poda do STATUS e conferência do tamanho do CLAUDE.md e do AGENTS.md (CLAUDE.md abaixo de ~200 linhas, segundo a [doc de memória](https://code.claude.com/docs/en/memory)). Sem cadência fixa: faça quando o STATUS passar de uma página ou os handoffs pendentes atrapalharem. Escolha trivial não precisa de registro.
