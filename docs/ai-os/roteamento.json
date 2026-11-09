@@ -1,6 +1,12 @@
 {
   "schema_version": 2,
-  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity: instalado e autenticado em 09/11/2026; no Paseo so existe o modo full-access (sem aprovacao), entao vale o ADR-0005 (aceito em 09/11/2026): via Paseo so tarefa de risco baixo, repo sem segredos, worktree novo, override --sandbox ativo e revisao do diff, nunca em projeto restrito. Risco da tarefa (low/medium/high) e nivel de raciocinio do modelo (-low/-medium/-high) sao coisas distintas. GPT-6 Astra (Codex) so para risco alto sem executor mais barato que atinja o piso, com --thinking low/medium, uma tarefa por vez e franquia Codex 5h < 50% (uma revisao com thinking padrao gastou 27% da janela 5h). Revisoes de risco medio: Gemini 4 Argon via agy --mode plan, gpt-6.1-sol (thinking low/medium), gpt-6-luna se mecanica. Nao e API paga; DeepSeek Harness opcional.",
+  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity: instalado e autenticado em 09/11/2026; no Paseo so existe o modo full-access (sem aprovacao), entao vale o ADR-0005 (aceito em 09/11/2026): via Paseo so tarefa de risco baixo, repo sem segredos, worktree novo, override --sandbox ativo, revisao do diff e sem commits por agentes agy (I-33), nunca em projeto restrito. Risco da tarefa (low/medium/high) e nivel de raciocinio do modelo (-low/-medium/-high) sao coisas distintas. GPT-6 Astra (Codex) so para risco alto sem executor mais barato que atinja o piso, com --thinking low/medium, uma tarefa pesada por vez no Codex (I-23) e franquia Codex 5h < 50% (franquia unknown bloqueia o Astra; uma revisao com thinking padrao gastou 27% da janela 5h). Revisoes de risco medio: Gemini 4 Argon via agy --mode plan, gpt-6.1-sol (thinking low/medium), gpt-6-luna se mecanica. Decomposicao: haiku para checagens mecanicas, sonnet nativo para docs/rotina, gemini-3.8-flash via Paseo para codigo pequeno com testes, opus so para orquestracao e alto risco. Nao e API paga; DeepSeek Harness opcional.",
+  "decomposicao": {
+    "haiku": "checagens, inventarios e verificacoes mecanicas",
+    "sonnet": "docs e implementacao de rotina (nativo Claude Code; via Antigravity so gemini-*)",
+    "gemini-3.8-flash": "codigo pequeno verificavel por testes via Paseo (risco baixo)",
+    "opus": "orquestracao e decisao de risco alto"
+  },
   "classes": {
     "high": [
       {
@@ -9,13 +15,21 @@
       },
       {
         "harness": "codex",
-        "perfil": "frontier-implementacao"
+        "modelo": "gpt-6-astra",
+        "perfil": "frontier-implementacao",
+        "condicao": "so para risco alto sem executor mais barato que atinja o piso; requer franquia Codex 5h < 50% (franquia unknown bloqueia o Astra); sempre com --thinking low ou medium explicito; uma tarefa pesada por vez no Codex (I-23)"
       }
     ],
     "medium": [
       {
         "harness": "codex",
+        "modelo": "gpt-6.1-sol",
         "perfil": "implementacao"
+      },
+      {
+        "harness": "codex",
+        "modelo": "gpt-6-luna",
+        "perfil": "revisao-mecanica"
       },
       {
         "harness": "claude",
@@ -34,6 +48,7 @@
       },
       {
         "harness": "codex",
+        "modelo": "gpt-6-luna",
         "perfil": "implementacao"
       },
       {

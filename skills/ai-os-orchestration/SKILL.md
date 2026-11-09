@@ -17,16 +17,16 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 
 1. Run `paseo daemon status`. If unavailable, fall back to native subagents and tell Felipe which provider or isolation requirements cannot be met.
 2. Check whether the project matches `[restricted].paths` in `~/Workspace/tools/workflow-ai/config/ai-os-memory.toml` (including its main checkout for worktrees), or has a SessionStart restriction warning. File presence alone does not make a project restricted. Such projects permit only `allowed_models`, including fallback and reviewers. Match Paseo's `opencode/opencode/<model>` against policy ID `opencode/<model>`. Claude/Codex mean subscription harnesses, not gateway APIs.
-3. Read `~/.local/state/ai-os/quota/claude.json` and `codex.json` in that directory; the watchdog updates Codex outside the sandbox every 5 min (I-06). Missing, stale, or failed readings mean `unknown`; never invent percentages.
+3. Read `~/.local/state/ai-os/quota/claude.json`, `codex.json`, and `antigravity.json` in that directory; the watchdog updates Codex and Antigravity outside the sandbox every 5 min (I-06). Missing, stale, or failed readings mean `unknown`; never invent percentages.
 4. Apply ADR-0002's quality floor, then choose the lowest effective coordination and quota cost:
 
 | Risk | Executor | Verification |
 |---|---|---|
 | High: security, auth, data, architecture | Claude Opus; GPT-6 Astra only if no cheaper executor meets the floor (see Astra rule) | Reviewer from another model family |
-| Medium | Codex gpt-6.1-sol/Luna or Claude Sonnet | Large diff: reviewer in order Gemini 4 Argon (`agy --mode plan`), gpt-6.1-sol (thinking low/medium), gpt-6-luna if mechanical |
+| Medium | Codex gpt-6.1-sol / gpt-6-luna or Claude Sonnet | Large diff: reviewer in order Gemini 4 Argon (`agy --mode plan`), gpt-6.1-sol (thinking low/medium), gpt-6-luna if mechanical |
 | Low, test-verifiable | OpenCode free | Orchestrator checks tests and diff |
 
-5. Astra rule: a single read-only Astra review (default thinking) cost 27% of the Codex 5h window (09/11); use only for high risk, always `--thinking low|medium`, one task at a time, Codex 5h <50%. Decomposition: split tasks and send each part to the cheapest model that meets the floor: Haiku for mechanical checks, Sonnet for docs/routine code, Gemini Flash via Paseo for small test-verifiable code, Opus only to orchestrate or decide high risk (ADR-0002 amendment 2026-11-09).
+5. Astra rule: a single read-only Astra review (default thinking) cost 27% of the Codex 5h window (09/11); use only for high risk, always `--thinking low|medium`, one heavy task at a time (I-23), Codex 5h <50% (`unknown` quota blocks Astra). Decomposition: split tasks and send each part to the cheapest model that meets the floor: Haiku for mechanical checks, native Sonnet for docs/routine code (via Antigravity use only `gemini-*`; on 09/11 a docs task with claude-sonnet-5-5-medium via agy reduced 5h 'Claude and GPT models' pool from 100% to 88%, observed in `agy -p /usage`, without measuring Anthropic quota), Gemini Flash via Paseo for small test-verifiable code, Opus only to orchestrate or decide high risk (ADR-0002 amendment 2026-11-09).
 6. At 5h usage ≥85% or weekly usage ≥75%, prefer another provider for new low/medium-risk tasks. Consider reset time; ADR-0002 allows a short task within 20 minutes of reset. Never lower the high-risk quality floor: wait or ask Felipe if no eligible executor/reviewer is available.
 7. Verify available model IDs on the host. `docs/ai-os/roteamento.json` is advisory, not native Paseo configuration. In this repo, consult ADR-0002/0003 and `docs/ai-os/USO-DIARIO.md` for operational details.
 
@@ -35,11 +35,15 @@ description: Orchestrate work across native specialists and Paseo providers. Use
 From a terminal, substitute the current branch, confirmed provider/model, and a provider-valid mode:
 
 ```sh
-paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> [--thinking <level>] --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+# For Codex (--thinking is mandatory, e.g. low|medium):
+paseo run --no-wait --title <t> --provider codex/<model> --mode auto-review --thinking <low|medium> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
+
+# For other providers:
+paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-workspace worktree --worktree-slug <slug> --base <current-branch> "<objective; owned files; limits; acceptance criteria; end with a state note>"
 ```
 
 - Always specify `provider/model` (I-19) and `--base` (I-17); a new worktree otherwise starts from the default branch.
-- Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`. Always pass explicit `--thinking` (e.g. `--provider codex/gpt-6.1-sol --thinking medium`).
+- Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`. Always pass explicit `--thinking` (mandatory on every Codex run, e.g. `--provider codex/gpt-6.1-sol --thinking medium`).
 - Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
 - OpenCode mode IDs: `build`, `plan`. Pass mode IDs, not UI labels (`Build` is rejected).
 - Antigravity (`antigravity/<model>`, e.g. `gemini-3.8-flash-medium`): only mode ID `full-access` (no approval gate, I-32); not routine, see the Antigravity section. Rules and models in the Antigravity section below.
@@ -75,16 +79,16 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> [--thi
 | Model (`-low/-medium/-high` = reasoning level) | Relative cost | Best use |
 |---|---|---|
 | `gemini-3.8-flash` | lowest (hypothesis) | trivial, volume, long reading, 1M context |
-| `claude-sonnet-5-5` | medium (hypothesis) | routine implementation, tests, docs |
+| `claude-sonnet-5-5` | medium (hypothesis) | runs with bypass in agy; use native Sonnet instead (via agy only gemini-*) |
 | `gemini-4-argon` | high; own weekly bar (verified) | second opinion from another family, long context, images/video |
 | `claude-opus-5-5` | highest (hypothesis) | hard tasks only; not cross-family for Claude-written code |
 | `gpt-oss-120b-medium` | unknown | fallback; may leave after 18/11 |
 
-- Quota pools (verified): "Gemini Models" and "Claude and GPT models", each with 5h and weekly windows; Argon has an extra weekly bar. Observable evidence: `agy -p "/usage"` shows a "Claude and GPT models" pool separate from "Gemini Models"; that Claude via `agy` spends Google rather than Anthropic quota is an inference. Read with `agy -p "/usage"` (spends nothing) or `quota/antigravity.json` (watchdog sensor, every 5 min); missing, stale, or failed readings mean `unknown`.
+- Quota pools (verified): "Gemini Models" and "Claude and GPT models", each with 5h and weekly windows; Argon has an extra weekly bar. Observable evidence: `agy -p "/usage"` shows a "Claude and GPT models" pool separate from "Gemini Models"; on 09/11 a docs task with claude-sonnet-5-5-medium via agy reduced the 5h "Claude and GPT models" pool from 100% to 88% (observed via `agy -p /usage`), without measuring Anthropic quota. Read with `agy -p "/usage"` (spends nothing) or `quota/antigravity.json` (watchdog sensor, every 5 min); missing, stale, or failed readings mean `unknown`.
 - Prefer Antigravity over Codex/OpenCode/native Claude when: Codex or Claude is above the 85%/75% thresholds; a Google-family reviewer is wanted for code written by Claude or Codex; the input is very long or visual; OpenCode free is out of quota.
 - Prefer others when: high-risk decisions (native Claude or Codex Astra), tasks needing the project's skills/hooks (native Claude), tasks with a deadline and an unmeasured pool.
-- Safety (ADR-0005, accepted 2026-11-09; task risk is separate from the model reasoning suffix `-low/-medium/-high`): the Paseo provider is full-access; a worktree does not isolate the host and `--sandbox` covers only the terminal (native file tools, network and MCP unproven). No routine dispatch through Paseo; use it only for low-risk tasks, in repos without secrets, in a new worktree, with the `--sandbox` override active, and review the diff; never in restricted projects. Claude models via `agy` also run without per-action approval.
-- Cross-family Google review/second opinion (rule): call `agy` directly, without bypass, from the repo: `perl -e 'alarm 120; exec @ARGV' agy --mode plan --model gemini-4-argon-low -p "<question>"` (prompt attached to `-p`, after the other flags). Tested on 09/11: answers without permission prompts and did not write to the workspace (only a `plan.md` artifact in `~/.gemini`); network/MCP unverified.
+- Safety (ADR-0005, accepted 2026-11-09; task risk is separate from the model reasoning suffix `-low/-medium/-high`): the Paseo provider is full-access; a worktree does not isolate the host and `--sandbox` covers only the terminal (native file tools, network and MCP unproven). No routine dispatch through Paseo; use it only for low-risk tasks, in repos without secrets, in a new worktree, with the `--sandbox` override active, and review the diff; never in restricted projects. Via Antigravity dispatch only `gemini-*` (Claude models via `agy` run with bypass; use native Sonnet for routine docs). No commits by agy agents; orchestrator commits (I-33: agy agent bypassed --sandbox after commit failure; sandbox is not an absolute barrier under bypass).
+- Cross-family Google review/second opinion (rule): call `agy` directly, without bypass, from the repo: `perl -e 'alarm 120; exec @ARGV' agy --mode plan --model gemini-4-argon-low -p "<question>"` (prompt attached to `-p`, after the other flags). Tested on 09/11: initial reading test with `gemini-3.8-flash-low` and subsequent review with `gemini-4-argon-low` (worked, ~3% of Gemini 5h pool); answered without permission prompts and did not write to the workspace (only a `plan.md` artifact in `~/.gemini`); network/MCP unverified. Note: `agy --mode plan -p` does not run shell tools (`git diff` is denied in headless); pass the content or diff directly inside the prompt.
 
 ## Output contract
 

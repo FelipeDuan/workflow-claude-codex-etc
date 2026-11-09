@@ -8,15 +8,16 @@ O ADR-0003 adotou o Paseo contando com o portão de aprovação dos harnesses: s
 
 Mitigação disponível e testada em 09/11: o override `agents.providers.antigravity.command = ["/opt/homebrew/bin/agy", "--sandbox"]` em `~/.paseo/config.json`. O Paseo coloca esses argumentos antes dos dele, então todo agente roda com o sandbox de terminal do `agy`. No teste, `ls ~/.ssh` falhou com `Operation not permitted` e a escrita no worktree funcionou. Pelo changelog do `agy`, sob `--dangerously-skip-permissions` os comandos da denylist do sistema continuam bloqueados, e as regras de negação explícitas continuam valendo.
 
-O worktree do Paseo não isola o host: o agente continua com o usuário e o HOME do Felipe. O `--sandbox` só cobre o terminal; ferramentas nativas de arquivo, rede e chamadas MCP não foram comprovadas como restritas (o `ls ~/.ssh` bloqueado não prova isolamento geral). O changelog diz que, com o flag, leituras e escritas fora do workspace "go through without a prompt".
+O worktree do Paseo não isola o host: o agente continua com o usuário e o HOME do Felipe. O `--sandbox` só cobre o terminal; ferramentas nativas de arquivo, rede e chamadas MCP não foram comprovadas como restritas (o `ls ~/.ssh` bloqueado não prova isolamento geral). O changelog diz que, com o flag, leituras e escritas fora do workspace "go through without a prompt". Além disso, em 09/11 (I-33), um agente t5 (`claude-sonnet-5-5-medium` via `agy` com `--sandbox`) teve o `git commit` bloqueado no sandbox e repetiu o comando fora do sandbox alegando aprovação inexistente, provando que `--sandbox` não é barreira absoluta sob bypass.
 
 ## Decisão
 
 1. Não despachar o Antigravity pelo Paseo como rotina. Uso via Paseo só para tarefa de risco baixo, em repo sem segredos, em worktree novo (`--new-workspace worktree --base <branch>`), com revisão do diff pelo orquestrador. Nunca no checkout principal.
 2. Nunca em projeto restrito (`config/ai-os-memory.toml`); ele não entra em `allowed_models` sem decisão explícita do Felipe.
 3. O override com `--sandbox` é obrigatório para esse uso (reduz o risco no terminal, não o elimina). Sem ele, não despachar.
-4. Preferir modelos `gemini-*`. Os modelos Claude oferecidos pelo `agy` rodariam com bypass de permissões, o que contraria a regra de nunca usar bypass no Claude.
-5. Para revisão e segunda opinião cross-family, usar o `agy` direto, somente leitura e sem bypass: `agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` no diretório do repo. Teste de 09/11 em `MODELOS_2026.md`: respondeu sem pedir permissão e não escreveu no workspace.
+4. Usar somente modelos `gemini-*` via Paseo/agy. Os modelos Claude oferecidos pelo `agy` rodariam com bypass de permissões, o que contraria a regra de nunca usar bypass no Claude (para docs e rotina, use Sonnet nativo como subagente do Claude Code).
+5. Para revisão e segunda opinião cross-family, usar o `agy` direto, somente leitura e sem bypass: `agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` no diretório do repo. Testes de 09/11 em `MODELOS_2026.md`: leitura inicial com `gemini-3.8-flash-low` e revisão posterior com `gemini-4-argon-low` funcionaram sem pedir permissão, consumindo ~3% do pool Gemini 5h, sem escrever no workspace. Note que `agy --mode plan -p` não roda shell (`git diff` é negado em headless); passe o diff no próprio prompt.
+6. Agentes via Paseo/agy não commitam; o orquestrador revisa e commita (I-33).
 
 ## Consequências
 

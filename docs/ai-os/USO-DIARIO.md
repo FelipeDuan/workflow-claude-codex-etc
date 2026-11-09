@@ -14,7 +14,7 @@ Sem o app, tudo continua funcionando pelo terminal: `claude`, `ai-memory run cod
 | Tarefa | Primeira escolha | Revisor |
 |---|---|---|
 | Risco alto (segurança, auth, dados, arquitetura) | Claude Opus; Codex Astra só com cautela (ver abaixo) | outra família |
-| Risco médio | Codex (Luna/Sol) ou Claude Sonnet | quando o diff for grande: Gemini 4 Argon (`agy --mode plan`), depois gpt-6.1-sol (`--thinking low/medium`), gpt-6-luna se mecânica |
+| Risco médio | Codex gpt-6.1-sol / gpt-6-luna ou Claude Sonnet | quando o diff for grande: Gemini 4 Argon (`agy --mode plan`), depois gpt-6.1-sol (`--thinking low/medium`), gpt-6-luna se mecânica |
 | Risco baixo e com teste | OpenCode gratuito (GLM-5.3-Flash / DeepSeek V4.1 Flash) | conferir testes e diff |
 | Dados de SEPLAN/clientes | somente `allowed_models` em `config/ai-os-memory.toml`; conferir treino das contas | — |
 
@@ -22,13 +22,14 @@ Antes de escolher, olhe a franquia:
 
 - Claude: barra de status (`Claude 5h X% · sem Y%`) ou `~/.local/state/ai-os/quota/claude.json`.
 - Codex: `~/.local/state/ai-os/quota/codex.json`. O vigia executa `python3 scripts/quota_codex.py --write` a cada 5 min, fora do sandbox, pelo launchd.
+- Antigravity: `~/.local/state/ai-os/quota/antigravity.json`. O vigia executa `python3 scripts/quota_antigravity.py --write` a cada 5 min.
 - No Paseo: `paseo usage`.
 
-**GPT-6 Astra (Codex), usar com muito cuidado.** Uma revisão somente leitura com `gpt-6-astra` (thinking padrão) consumiu 27% da janela de 5h do Codex em 09/11; antes, 3 agentes Astra pararam por limite (I-11). Só para risco alto quando nenhum executor mais barato atinge o piso de qualidade, sempre com `--thinking low` ou `medium` explícito, uma tarefa por vez e com franquia Codex 5h < 50%. Modelos Codex (`paseo provider models codex`): gpt-6.1-sol (workhorse), gpt-6-astra (frontier), gpt-6.1-terra (custo não medido), gpt-6-sol, gpt-6-luna (rápido e barato), gpt-5.6-sol/terra/luna (gerações antigas).
+**GPT-6 Astra (Codex), usar com muito cuidado.** Uma revisão somente leitura com `gpt-6-astra` (thinking padrão) consumiu 27% da janela de 5h do Codex em 09/11; antes, 3 agentes Astra pararam por limite (I-11). Só para risco alto quando nenhum executor mais barato atinge o piso de qualidade, sempre com `--thinking low` ou `medium` explícito, uma tarefa por vez (a regra de uma por vez vale para agentes Codex pesados, I-23) e com franquia Codex 5h < 50% (franquia `unknown` bloqueia o Astra). Modelos Codex (`paseo provider models codex`): gpt-6.1-sol (workhorse), gpt-6-astra (frontier), gpt-6.1-terra (custo não medido), gpt-6-sol, gpt-6-luna (rápido e barato), gpt-5.6-sol/terra/luna (gerações antigas).
 
-**Decomposição para economia.** O orquestrador quebra a tarefa e manda cada parte ao modelo mais barato que atinge o piso de qualidade: Haiku para checagens, inventários e verificações mecânicas; Sonnet (nativo ou via Antigravity, que gasta o pool Google "Claude and GPT models") para docs e implementação de rotina; Gemini Flash via Paseo para código pequeno verificável por testes (medido: 3% da janela 5h para script + 14 testes); Opus só para orquestração e decisão de risco alto.
+**Decomposição para economia.** O orquestrador quebra a tarefa e manda cada parte ao modelo mais barato que atinge o piso de qualidade: Haiku para checagens, inventários e verificações mecânicas; Sonnet nativo (subagente do Claude Code) para docs e implementação de rotina (via Antigravity use só modelos `gemini-*`, pois Claude no `agy` roda com bypass; em 09/11 uma tarefa de docs com claude-sonnet-5-5-medium via agy reduziu o pool "Claude and GPT models" 5h de 100% para 88%, observado em `agy -p /usage`, sem medir a cota Anthropic); Gemini Flash (`gemini-3.8-flash`) via Paseo para código pequeno verificável por testes (medido: 3% da janela 5h para script + 14 testes); Opus só para orquestração e decisão de risco alto.
 
-Agentes em sandbox devem ler esses dois arquivos de estado, sem executar o leitor de franquia (I-06). Arquivo ausente, leitura vencida ou status diferente de `ok` significa franquia desconhecida.
+Agentes em sandbox devem ler esses arquivos de estado (`claude.json`, `codex.json` e `antigravity.json`), sem executar o leitor de franquia (I-06). Arquivo ausente, leitura vencida ou status diferente de `ok` significa franquia desconhecida.
 
 ## Perfis sugeridos no Paseo (criar na UI)
 
@@ -61,9 +62,11 @@ ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 O provider só aceita o modo `full-access`: o `agy` roda sem pedir aprovação (I-32). O worktree não isola o host e o `--sandbox` só cobre o terminal. Por isso, com o ADR-0005 aceito (09/11/2026), não é despacho de rotina:
 
 - só tarefas de risco baixo, em repo sem segredos, em worktree novo com `--base`, e com revisão do diff; nunca em projeto restrito;
-- para revisão ou segunda opinião do Google, use o `agy` direto, somente leitura e sem bypass: `cd <repo> && perl -e 'alarm 120; exec @ARGV' agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` (o prompt vai colado ao `-p`, depois das outras flags);
+- agentes via Paseo/agy não commitam; o orquestrador revisa e commita (I-33: sob bypass o sandbox não bloqueou o agente de tentar sair após o commit falhar);
+- para revisão ou segunda opinião do Google, use o `agy` direto, somente leitura e sem bypass: `cd <repo> && perl -e 'alarm 120; exec @ARGV' agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` (o prompt vai colado ao `-p`, depois das outras flags; teste de 09/11 com leitura inicial em `gemini-3.8-flash-low` e revisão posterior em `gemini-4-argon-low` funcionou sem pedir aprovação, ~3% do pool Gemini 5h);
+- `agy --mode plan -p` não roda ferramentas de shell (`git diff` é negado em headless); passe o conteúdo (diff) no próprio prompt;
 - confira antes que o override com `--sandbox` está ativo: `paseo daemon config get agents.providers`;
-- prefira `gemini-*` (`paseo provider models antigravity`). Os modelos Claude do `agy` rodariam com bypass;
+- prefira `gemini-*` (`paseo provider models antigravity`). Os modelos Claude do `agy` rodariam com bypass; use Sonnet nativo para docs/rotina;
 - a franquia não aparece em `paseo usage`: leia `~/.local/state/ai-os/quota/antigravity.json` (sensor escrito pelo vigia a cada 5 min); ausente, velho ou com erro é `unknown`;
 - o ai-memory captura a sessão por hooks, mas o `agy` não tem evento de fim de conversa. Para passar o bastão na hora: `ai-memory finalize-session --agent antigravity-cli`.
 
