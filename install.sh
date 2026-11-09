@@ -13,6 +13,8 @@
 # MCP: `claude mcp add --scope user` grava em ~/.claude.json; no Codex, append
 # em ~/.codex/config.toml. O settings.json do Claude recebe o hook StopFailure.
 # Carrega mods/quota-guard via env.CLAUDE_CODE_PLUGIN_DIRS no settings do usuário.
+# Antigravity (agy): link de AGENTS.md e skills.json em ~/.gemini/config/; o MCP
+# e os hooks do ai-memory ficam com `ai-memory install-mcp/install-hooks`.
 # --harden acrescenta configurações por merge não destrutivo com backup
 # (scripts/harden.py) no settings.json do Claude e config.toml do Codex.
 
@@ -31,6 +33,7 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 AGENTS_SKILLS_DIR="$HOME/.agents/skills"
+ANTIGRAVITY_DIR="$HOME/.gemini/config"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/workflow-ai"
 VENDOR_DIR="$DATA_DIR/vendor"
 BACKUP_DIR="$HOME/.workflow-ai-backup/$(date +%Y%m%d-%H%M%S)"
@@ -44,6 +47,7 @@ WATCHDOG=0
 ONLY_CLAUDE=0
 ONLY_CODEX=0
 ONLY_OPENCODE=0
+ONLY_ANTIGRAVITY=0
 
 N_OK=0
 N_CHANGED=0
@@ -69,9 +73,11 @@ Claude: carrega mods/quota-guard via env.CLAUDE_CODE_PLUGIN_DIRS no settings do 
 
 Opções:
   --dry-run          Mostra o que seria feito, sem alterar nada.
-  --only ALVO        Instala só para "claude", "codex" ou "opencode". Pode repetir.
-                     codex inclui ~/.agents/skills (lido também por Gemini CLI,
-                     OpenCode etc.).
+  --only ALVO        Instala só para "claude", "codex", "opencode" ou
+                     "antigravity". Pode repetir. codex inclui ~/.agents/skills
+                     (lido também por OpenCode etc.). antigravity linka AGENTS.md
+                     em ~/.gemini/config/ e declara ~/.agents/skills em
+                     ~/.gemini/config/skills.json (sem --only, só se agy existir).
   --update           Baixa de novo as fontes de terceiros (no SHA fixado),
                      descartando o cache atual (o cache antigo vai para backup).
   --no-third-party   Não instala nada de third-party.lock (nem o Graphify).
@@ -107,7 +113,7 @@ while [ $# -gt 0 ]; do
         -h|--help) usage; exit 0 ;;
         --only|--only=*)
             if [ "$1" = "--only" ]; then
-                [ $# -ge 2 ] || die "--only precisa de um valor (claude|codex|opencode)"
+                [ $# -ge 2 ] || die "--only precisa de um valor (claude|codex|opencode|antigravity)"
                 target="$2"; shift
             else
                 target="${1#--only=}"
@@ -116,7 +122,8 @@ while [ $# -gt 0 ]; do
                 claude) ONLY_CLAUDE=1 ;;
                 codex) ONLY_CODEX=1 ;;
                 opencode) ONLY_OPENCODE=1 ;;
-                *) die "--only aceita claude, codex ou opencode (recebido: $target)" ;;
+                antigravity) ONLY_ANTIGRAVITY=1 ;;
+                *) die "--only aceita claude, codex, opencode ou antigravity (recebido: $target)" ;;
             esac
             ;;
         *) usage >&2; die "opção desconhecida: $1" ;;
@@ -124,17 +131,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$ONLY_CLAUDE" = 0 ] && [ "$ONLY_CODEX" = 0 ] && [ "$ONLY_OPENCODE" = 0 ]; then
+if [ "$ONLY_CLAUDE" = 0 ] && [ "$ONLY_CODEX" = 0 ] && [ "$ONLY_OPENCODE" = 0 ] && [ "$ONLY_ANTIGRAVITY" = 0 ]; then
     DO_CLAUDE=1; DO_CODEX=1; DO_OPENCODE=1
+    DO_ANTIGRAVITY=0; command -v agy >/dev/null 2>&1 && DO_ANTIGRAVITY=1
 else
-    DO_CLAUDE=$ONLY_CLAUDE; DO_CODEX=$ONLY_CODEX; DO_OPENCODE=$ONLY_OPENCODE
+    DO_CLAUDE=$ONLY_CLAUDE; DO_CODEX=$ONLY_CODEX; DO_OPENCODE=$ONLY_OPENCODE; DO_ANTIGRAVITY=$ONLY_ANTIGRAVITY
 fi
 
-want_target() { # $1 = claude|codex|opencode
+want_target() { # $1 = claude|codex|opencode|antigravity
     case "$1" in
         claude) [ "$DO_CLAUDE" = 1 ] ;;
         codex) [ "$DO_CODEX" = 1 ] ;;
         opencode) [ "$DO_OPENCODE" = 1 ] ;;
+        antigravity) [ "$DO_ANTIGRAVITY" = 1 ] ;;
         *) return 1 ;;
     esac
 }
@@ -294,6 +303,15 @@ plan_own_content() {
             name="$(basename "$f" .md)"
             plan command-skill "$f" "$name" "commands/$(basename "$f")" "$AGENTS_SKILLS_DIR/$name"
         done
+    fi
+    if want_target antigravity; then
+        # agy lê regras globais em ~/.gemini/config/AGENTS.md e skills declaradas
+        # em ~/.gemini/config/skills.json; reaproveita o ~/.agents/skills do Codex.
+        plan link "$REPO_DIR/AGENTS.md" "$ANTIGRAVITY_DIR/AGENTS.md"
+        printf '{\n  "entries": [\n    { "path": "%s" }\n  ]\n}\n' "$AGENTS_SKILLS_DIR" > "$STAGE/agy-skills.json"
+        plan copy-file "$STAGE/agy-skills.json" "$ANTIGRAVITY_DIR/skills.json"
+        [ -d "$AGENTS_SKILLS_DIR" ] || want_target codex \
+            || warn "$AGENTS_SKILLS_DIR não existe; rode também --only codex para o agy ter skills"
     fi
 }
 
@@ -704,6 +722,13 @@ setup_mcp() {
             warn "python3 ausente; bridge do ai-memory no Codex não configurado"
         fi
     fi
+    if want_target antigravity; then
+        if grep -q '"ai-memory"' "$ANTIGRAVITY_DIR/mcp_config.json" 2>/dev/null; then
+            ok "agy mcp ai-memory"
+        else
+            warn "ai-memory ausente no agy; rode: ai-memory install-mcp --client antigravity-cli --apply && ai-memory install-hooks --agent antigravity-cli --apply"
+        fi
+    fi
     if ! command -v npx >/dev/null 2>&1; then
         warn "npx não encontrado; Playwright MCP não configurado (instale Node.js e rode de novo)"
     else
@@ -894,6 +919,9 @@ report() {
     if want_target codex; then
         say "  Codex:  skills(~/.agents/skills)=$(count_entries "$AGENTS_SKILLS_DIR" '*') agents=$(count_entries "$CODEX_DIR/agents" '*.toml')"
     fi
+    if want_target antigravity; then
+        say "  Antigravity: AGENTS.md e skills.json em $ANTIGRAVITY_DIR (skills via ~/.agents/skills)"
+    fi
     if [ "$N_BACKUP" -gt 0 ] && [ "$DRY_RUN" = 0 ]; then
         say "  Backups em: $BACKUP_DIR (lista em MANIFEST.tsv)"
     fi
@@ -903,7 +931,7 @@ report() {
         [ -d "$d" ] || continue
         find "$d" -mindepth 1 -maxdepth 1 -type l ! -exec test -e {} \; -print >> "$broken"
     done
-    for d in "$CLAUDE_DIR/CLAUDE.md" "$CODEX_DIR/AGENTS.md" "$OPENCODE_DIR/AGENTS.md"; do
+    for d in "$CLAUDE_DIR/CLAUDE.md" "$CODEX_DIR/AGENTS.md" "$OPENCODE_DIR/AGENTS.md" "$ANTIGRAVITY_DIR/AGENTS.md"; do
         if [ -L "$d" ] && [ ! -e "$d" ]; then printf '%s\n' "$d" >> "$broken"; fi
     done
     if [ -s "$broken" ]; then
@@ -919,7 +947,7 @@ report() {
 # ------------------------------------------------------------------ main
 
 say "workflow-ai: repo=$REPO_DIR"
-say "  alvos: $( [ "$DO_CLAUDE" = 1 ] && printf 'claude ')$( [ "$DO_CODEX" = 1 ] && printf 'codex ')$( [ "$DO_OPENCODE" = 1 ] && printf 'opencode')"
+say "  alvos: $( [ "$DO_CLAUDE" = 1 ] && printf 'claude ')$( [ "$DO_CODEX" = 1 ] && printf 'codex ')$( [ "$DO_OPENCODE" = 1 ] && printf 'opencode ')$( [ "$DO_ANTIGRAVITY" = 1 ] && printf 'antigravity')"
 [ "$DRY_RUN" = 1 ] && say "  modo: dry-run"
 
 step "Conteúdo próprio (symlinks para o repo; toml/skills do Codex gerados)"
