@@ -482,7 +482,7 @@ class WatchdogTests(unittest.TestCase):
             self.assertEqual(run.call_count, 2)
             self.assertEqual(run.call_args_list[0].args[0], ['python3', str(ROOT / 'scripts/quota_codex.py'), '--write'])
             self.assertEqual(run.call_args_list[1].args[0], ['python3', str(ROOT / 'scripts/quota_antigravity.py'), '--write'])
-            self.assertGreater(run.call_args.kwargs['timeout'], 20)
+            self.assertGreater(run.call_args.kwargs['timeout'], 30)  # sensor tem 30s internos
             watchdog.refresh_quota(state, NOW + timedelta(minutes=5), False, log)
             self.assertEqual(run.call_count, 4)
             before = dict(state)

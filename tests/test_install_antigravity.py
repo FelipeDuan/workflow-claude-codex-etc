@@ -39,6 +39,35 @@ class InstallAntigravityTest(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             self.assertIn('alterações: 0', second.stdout)
 
+    def test_skills_json_existente_e_preservado(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            skills_dir = home / '.agents' / 'skills'
+            skills_dir.mkdir(parents=True)
+            cfg = home / '.gemini' / 'config'
+            cfg.mkdir(parents=True)
+            (cfg / 'skills.json').write_text(json.dumps({'entries': [{'path': '/outro/lugar'}]}))
+
+            res = self.run_install(home)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            paths = [e['path'] for e in json.loads((cfg / 'skills.json').read_text())['entries']]
+            self.assertEqual(paths, ['/outro/lugar', str(skills_dir)])
+
+            again = self.run_install(home)
+            self.assertIn('alterações: 0', again.stdout)
+
+    def test_skills_json_invalido_fica_intocado(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / '.agents' / 'skills').mkdir(parents=True)
+            cfg = home / '.gemini' / 'config'
+            cfg.mkdir(parents=True)
+            (cfg / 'skills.json').write_text('{quebrado')
+
+            res = self.run_install(home)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertEqual((cfg / 'skills.json').read_text(), '{quebrado')
+
 
 if __name__ == '__main__':
     unittest.main()

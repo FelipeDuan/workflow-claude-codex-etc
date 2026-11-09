@@ -169,7 +169,7 @@ PLAN="$STAGE/plan.tsv"
 # moveria arquivos do repo.
 physical_dir() { (cd "$1" 2>/dev/null && pwd -P); }
 for d in "$CLAUDE_DIR" "$CLAUDE_DIR/agents" "$CLAUDE_DIR/skills" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" \
-         "$CODEX_DIR" "$CODEX_DIR/agents" "$AGENTS_SKILLS_DIR" "$OPENCODE_DIR"; do
+         "$CODEX_DIR" "$CODEX_DIR/agents" "$AGENTS_SKILLS_DIR" "$OPENCODE_DIR" "$ANTIGRAVITY_DIR"; do
     [ -d "$d" ] || continue
     p="$(physical_dir "$d")"
     case "$p/" in
@@ -308,8 +308,34 @@ plan_own_content() {
         # agy lê regras globais em ~/.gemini/config/AGENTS.md e skills declaradas
         # em ~/.gemini/config/skills.json; reaproveita o ~/.agents/skills do Codex.
         plan link "$REPO_DIR/AGENTS.md" "$ANTIGRAVITY_DIR/AGENTS.md"
-        printf '{\n  "entries": [\n    { "path": "%s" }\n  ]\n}\n' "$AGENTS_SKILLS_DIR" > "$STAGE/agy-skills.json"
-        plan copy-file "$STAGE/agy-skills.json" "$ANTIGRAVITY_DIR/skills.json"
+        # Preserva as entradas existentes; só acrescenta a de ~/.agents/skills se faltar.
+        agy_skills="$ANTIGRAVITY_DIR/skills.json"
+        if [ ! -f "$agy_skills" ] || [ -L "$agy_skills" ] || python3 - "$agy_skills" "$AGENTS_SKILLS_DIR" "$STAGE/agy-skills.json" <<'PY'
+import json, shutil, sys
+src, skills_dir, out = sys.argv[1:4]
+try:
+    with open(src, encoding="utf-8") as fh:
+        data = json.load(fh)
+    entries = data.setdefault("entries", [])
+    if not isinstance(entries, list):
+        raise ValueError("entries não é lista")
+except (OSError, ValueError, AttributeError):
+    sys.exit(3)  # JSON inválido ou formato inesperado: não mexer
+if any(isinstance(e, dict) and e.get("path") == skills_dir for e in entries):
+    shutil.copyfile(src, out)  # já completo: idêntico, sem alteração
+else:
+    entries.append({"path": skills_dir})
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+PY
+        then
+            if [ ! -f "$agy_skills" ] || [ -L "$agy_skills" ]; then
+                printf '{\n  "entries": [\n    { "path": "%s" }\n  ]\n}\n' "$AGENTS_SKILLS_DIR" > "$STAGE/agy-skills.json"
+            fi
+            plan copy-file "$STAGE/agy-skills.json" "$agy_skills"
+        else
+            warn "$agy_skills não é JSON no formato esperado; deixado intocado"
+        fi
         [ -d "$AGENTS_SKILLS_DIR" ] || want_target codex \
             || warn "$AGENTS_SKILLS_DIR não existe; rode também --only codex para o agy ter skills"
     fi

@@ -19,10 +19,12 @@ Modelos em `agy models`: `gemini-4-argon`, `gemini-3.8-flash`, `claude-opus-5-5`
 | claude-opus-5-5 | maior (hipótese) | tarefa difícil; não é revisão de outra família para código escrito por Claude |
 | gpt-oss-120b-medium | desconhecido | fallback; a página de modelos indica remoção em 18/11/2026 |
 
-- Pools de franquia (verificado com `agy -p "/usage"`, que não gasta cota): "Gemini Models" e "Claude and GPT models", cada um com janelas de 5h e semanal; "Gemini 4 Argon" tem barra semanal própria. Claude via `agy` gasta cota Google, não a da Anthropic (inferência, sem fonte direta).
-- O Google não publica peso por modelo. A ordem de custo acima vem de preço de API e comportamento esperado; medir `/usage` antes e depois de uma tarefa padrão. `scripts/quota_antigravity.py` (em implantação) vai gravar `~/.local/state/ai-os/quota/antigravity.json`.
+- Pools de franquia (verificado com `agy -p "/usage"`, que não gasta cota): "Gemini Models" e "Claude and GPT models", cada um com janelas de 5h e semanal; "Gemini 4 Argon" tem barra semanal própria. Evidência observável: `agy -p "/usage"` mostra o pool "Claude and GPT models" separado do "Gemini Models". Que o Claude via `agy` gaste cota Google e não a da Anthropic é inferência, sem fonte direta.
+- O Google não publica peso por modelo. A ordem de custo acima vem de preço de API e comportamento esperado; medir `/usage` antes e depois de uma tarefa padrão. `scripts/quota_antigravity.py` grava `~/.local/state/ai-os/quota/antigravity.json` (o vigia roda a cada 5 min).
+- Medição real (09/11): a tarefa T1 (criar `quota_antigravity.py` + 14 testes, Paseo, `gemini-3.8-flash-high`, agente `664de82d`) consumiu 3% da janela de 5h e 1% da semanal do pool "Gemini Models". Uma amostra, não média.
+- Revisão cross-family sem bypass (testado em 09/11, agy 1.5.3): `agy --mode plan --model gemini-3.8-flash-low -p "resuma em 1 linha o que faz scripts/quota_antigravity.py"` no repo respondeu em 11 s, sem pedir permissão, lendo o arquivo. Com um prompt pedindo para criar `teste.txt` e rodar `touch`, em diretório descartável, o `agy` só gravou um `plan.md` no próprio diretório de dados (`~/.gemini/antigravity-cli/brain/`) e esperou aprovação; nada foi criado no workspace. Limite: um teste; rede e MCP não verificados. Sintaxe: o prompt precisa ir colado ao `-p`, depois de `--mode` e `--model` (`agy -p --mode plan "..."` falha).
 - Não verificado: qual plano a conta tem; se `AI Credit Overages` está em `Always` (pode gerar cobrança; conferir); desempenho por tipo de tarefa (frontend, docs, testes). Preço promocional do Argon vale até 30/11 segundo fontes secundárias.
-- Segurança: ver ADR-0005 (proposto) e I-32. Só `low`/`medium`, worktree isolado, nunca em projeto restrito.
+- Segurança: ver ADR-0005 (proposto) e I-32. Risco da tarefa (não confundir com o sufixo de raciocínio): via Paseo só risco baixo, repo sem segredos, worktree novo, revisão do diff, nunca em projeto restrito.
 - Fontes: https://antigravity.google/docs/models ; https://antigravity.google/docs/plans
 
 ## Regra de ranking

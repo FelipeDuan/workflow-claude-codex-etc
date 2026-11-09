@@ -60,6 +60,8 @@ PENDING_MIN = 2
 STUCK_MIN = 10
 DEDUP_MIN = 10
 CMD_TIMEOUT = 20
+# Maior que os 30s internos do quota_antigravity.py, para o sensor gravar o próprio erro.
+SENSOR_TIMEOUT = 45
 DESC_LIMIT = 200
 STATE_KEEP_DAYS = 7
 QUOTA_INTERVAL_MIN = 5
@@ -332,7 +334,7 @@ def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> 
         try:
             result = subprocess.run(
                 ["python3", str(REPO_ROOT / "scripts" / script_name), "--write"],
-                capture_output=True, text=True, timeout=CMD_TIMEOUT + 10,
+                capture_output=True, text=True, timeout=SENSOR_TIMEOUT,
             )
             payload = parse_json(result.stdout)
             if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":

@@ -54,12 +54,13 @@ ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 
 ## Antigravity (Gemini) no Paseo
 
-O provider só aceita o modo `full-access`: o `agy` roda sem pedir aprovação (I-32). Por isso:
+O provider só aceita o modo `full-access`: o `agy` roda sem pedir aprovação (I-32). O worktree não isola o host e o `--sandbox` só cobre o terminal. Por isso, enquanto o ADR-0005 estiver Proposto, não é despacho de rotina:
 
-- só tarefas de risco baixo ou médio, sempre em worktree novo com `--base`; nunca em projeto restrito;
+- só tarefas de risco baixo, em repo sem segredos, em worktree novo com `--base`, e com revisão do diff; nunca em projeto restrito;
+- para revisão ou segunda opinião do Google, prefira o `agy` direto, sem bypass: `cd <repo> && perl -e 'alarm 120; exec @ARGV' agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` (o prompt vai colado ao `-p`, depois das outras flags);
 - confira antes que o override com `--sandbox` está ativo: `paseo daemon config get agents.providers`;
 - prefira `gemini-*` (`paseo provider models antigravity`). Os modelos Claude do `agy` rodariam com bypass;
-- a franquia não aparece em `paseo usage`: trate como desconhecida;
+- a franquia não aparece em `paseo usage`: leia `~/.local/state/ai-os/quota/antigravity.json` (sensor escrito pelo vigia a cada 5 min); ausente, velho ou com erro é `unknown`;
 - o ai-memory captura a sessão por hooks, mas o `agy` não tem evento de fim de conversa. Para passar o bastão na hora: `ai-memory finalize-session --agent antigravity-cli`.
 
 Regra proposta no rascunho ADR-0005, que ainda aguarda o Felipe.

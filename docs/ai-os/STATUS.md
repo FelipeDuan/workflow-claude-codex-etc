@@ -230,16 +230,17 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 
 **Verificado**
 - Override `agents.providers.antigravity.command = ["/opt/homebrew/bin/agy","--sandbox"]` aplicado com `paseo reload`, sem reiniciar o daemon (backup `~/.paseo/config.json.bak-20261109`). `agy --sandbox --version` imprime só `1.5.3`.
-- Smoke test pelo Paseo (`gemini-3.8-flash-low`, diretório descartável): processo com `--sandbox` antes dos flags do provider; arquivo escrito; `ls ~/.ssh` bloqueado (`Operation not permitted`). Agente arquivado.
+- Smoke test pelo Paseo (`gemini-3.8-flash-low`, diretório descartável; sem ID nem artefato guardados): processo com `--sandbox` antes dos flags do provider; arquivo escrito; `ls ~/.ssh` bloqueado (`Operation not permitted`). Bloquear `ls ~/.ssh` não comprova isolamento geral: ferramentas nativas de arquivo, rede e MCP não foram testadas. Uso real bem-sucedido: agente T1 (`664de82d`, `gemini-3.8-flash-high`, criou `scripts/quota_antigravity.py` + 14 testes; consumo em `MODELOS_2026.md`).
+- Alternativa mais segura para revisão cross-family: `agy --mode plan -p "..."` direto, sem bypass (teste de 09/11 em `MODELOS_2026.md`).
 - `agy -p` carregou o AGENTS.md global (`~/.gemini/config/AGENTS.md`), as skills de `~/.agents/skills` (via `~/.gemini/config/skills.json`) e as ferramentas `memory_*`.
 - `ai-memory doctor` no repo: `antigravity-cli 1 local → 1 captured`.
 - Testes: `python3 -m unittest discover -s tests` 83 OK (novo `tests/test_install_antigravity.py`); `scripts/check.sh` 8/8 PASS.
 
-**Decisões em vigor:** só risco baixo/médio, em worktree isolado, nunca em projeto restrito (fora de `allowed_models`); ver I-32 e rascunho ADR-0005.
+**Decisões em vigor:** via Paseo só risco baixo, repo sem segredos, worktree novo (organização, não isolamento do host), revisão do diff, nunca em projeto restrito (fora de `allowed_models`); revisão cross-family preferencialmente com `agy --mode plan` direto; ver I-32 e rascunho ADR-0005.
 
 **Pendências**
 - Felipe: aceitar ou ajustar o ADR-0005 (Proposto).
 - Franquia e política de dados da conta Google: não confirmadas.
 - O link `~/.gemini/config/AGENTS.md` aponta para este worktree; os outros harnesses apontam para `workflow-ai/AGENTS.md`. Depois do merge em `feat/design-workflow-v1`, rodar `./install.sh --only antigravity` a partir de `workflow-ai/` para alinhar.
 - Subagentes do repo não convertidos para o formato do `agy`; o autoenable do ai-memory (`scripts/ai_memory_autoenable.py`) não cobre o `agy`.
-- Rollback: `paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]}}'` + `paseo reload`; backups de `~/.gemini/config` em `~/.workflow-ai-backup/20261109-agy/`.
+- Rollback: primeiro desabilitar o provider (`paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]},"antigravity":{"enabled":false,"command":["/opt/homebrew/bin/agy","--sandbox"]}}'` + `paseo reload`; conferir `paseo provider ls`, coluna ENABLED = Disabled). Só depois, se quiser, remover o override. Remover só o `--sandbox` deixaria o provider ativo com bypass total. O schema do Paseo aceita `enabled`, mas o rollback não foi executado; backups de `~/.gemini/config` em `~/.workflow-ai-backup/20261109-agy/`.
