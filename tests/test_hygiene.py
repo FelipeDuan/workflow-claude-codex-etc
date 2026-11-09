@@ -9,15 +9,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-if sys.version_info < (3, 11):
-    raise unittest.SkipTest('hygiene requer Python >= 3.11')
-
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
-spec = importlib.util.spec_from_file_location('hygiene', ROOT / 'scripts/hygiene.py')
-hygiene = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = hygiene
-spec.loader.exec_module(hygiene)
+NEW_PYTHON = sys.version_info >= (3, 11)
+hygiene = None
+if NEW_PYTHON:  # o módulo sai com mensagem clara em Python < 3.11 (tomllib); ver OldPython abaixo
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    spec = importlib.util.spec_from_file_location('hygiene', ROOT / 'scripts/hygiene.py')
+    hygiene = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = hygiene
+    spec.loader.exec_module(hygiene)
+needs_311 = unittest.skipUnless(NEW_PYTHON, 'hygiene requer Python >= 3.11 (testado em OldPython)')
 
 GIT_ENV = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't',
            'GIT_COMMITTER_EMAIL': 't@t', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_SYSTEM': '/dev/null'}
@@ -41,6 +42,7 @@ def agent(agent_id, status='closed', age=30.0, cwd='', pending=0):
             'pending_permissions': pending, '_cwd': cwd}
 
 
+@needs_311
 class HygieneCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,6 +81,7 @@ class HygieneCase(unittest.TestCase):
         return results[str(path)]['class']
 
 
+@needs_311
 class WorktreeMatrix(HygieneCase):
     def test_clean_integrated_is_candidate_with_commands(self):
         path = self.wt('limpa')
@@ -184,6 +187,7 @@ class WorktreeMatrix(HygieneCase):
         self.assertEqual(self.klass(res, self.repo), hygiene.PRESERVAR)
 
 
+@needs_311
 class AgentMatrix(HygieneCase):
     def test_closed_agent_with_dirty_worktree_preserved(self):
         path = self.wt('dirty-agent')
@@ -250,6 +254,7 @@ class AgentMatrix(HygieneCase):
         self.assertEqual(res['restrito/1']['class'], hygiene.PRESERVAR)
 
 
+@needs_311
 class Privacy(HygieneCase):
     def test_restricted_paths_masked_and_agent_title_never_collected(self):
         path = self.wt('segredo')
@@ -263,6 +268,7 @@ class Privacy(HygieneCase):
         self.assertEqual(res['restrito/2']['commands'], [])
 
 
+@needs_311
 class CliAndParsers(unittest.TestCase):
     def test_no_apply_flag(self):
         with self.assertRaises(SystemExit):
@@ -297,6 +303,159 @@ class CliAndParsers(unittest.TestCase):
             info = hygiene.memory_info()
         self.assertEqual((info['free_percentage'], info['pressure_level']), (35, 'aviso'))
         self.assertEqual(info['swap_total_bytes'], 12288 * 1024 * 1024)
+
+
+@needs_311
+class FailClosed(HygieneCase):
+    def test_more_than_40_refs_without_proof_is_desconhecido(self):
+        path = self.wt('muitas-refs')
+        (path / 'b.txt').write_text('b')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'exclusivo')
+        for n in range(45):
+            git(self.repo, 'branch', f'ref{n:02d}')
+        old(path)
+        scan, res = self.run_plan()
+        self.assertEqual(self.klass(res, path), hygiene.DESCONHECIDO)
+        self.assertIn('truncada', ' '.join(res[str(path)]['why']))
+        self.assertEqual(res[str(path)]['commands'], [])
+
+    def test_many_refs_but_ancestry_proves_it_is_still_candidate(self):
+        path = self.wt('muitas-refs-ok')
+        for n in range(45):
+            git(self.repo, 'branch', f'ref{n:02d}')
+        old(path)
+        _, res = self.run_plan()
+        self.assertEqual(self.klass(res, path), hygiene.CANDIDATO)
+
+    def test_no_eligible_refs_is_desconhecido(self):
+        path = self.wt('sem-refs')
+        (path / 'b.txt').write_text('b')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'exclusivo')
+        old(path)
+        with patch.object(hygiene, '_other_refs', return_value=[]), patch.object(hygiene, '_sibling_heads', return_value=[]):
+            scan, res = self.run_plan()
+        self.assertEqual(self.klass(res, path), hygiene.DESCONHECIDO)
+        self.assertIn('sem refs elegíveis', ' '.join(res[str(path)]['why']))
+
+    def test_patch_in_sibling_detached_worktree_counts(self):
+        path = self.wt('picked2')
+        (path / 'c.txt').write_text('c')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'feature')
+        sha = git(path, 'rev-parse', 'HEAD').strip()
+        det = self.paseo / 'g1' / 'detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(det))
+        (det / 'x.txt').write_text('x')
+        git(det, 'add', '.')
+        git(det, 'commit', '-q', '-m', 'outra')
+        git(det, 'cherry-pick', sha)
+        old(path)
+        scan, _ = self.run_plan()
+        item = next(w for w in scan['worktrees'] if w['path'] == str(path))
+        self.assertEqual((item['exclusive_commits'], item['unintegrated_commits']), (1, 0))
+
+    def test_lock_permission_error_is_desconhecido(self):
+        path = self.wt('lock-perm')
+        old(path)
+        real_stat = os.stat
+
+        def fake_stat(target, *a, **k):
+            if str(target).endswith('locked'):
+                raise PermissionError('negado')
+            return real_stat(target, *a, **k)
+
+        with patch.object(hygiene.os, 'stat', fake_stat):
+            scan, res = self.run_plan()
+        item = next(w for w in scan['worktrees'] if w['path'] == str(path))
+        self.assertIsNone(item['locked'])
+        self.assertEqual(self.klass(res, path), hygiene.DESCONHECIDO)
+        self.assertEqual(res[str(path)]['commands'], [])
+
+    def test_du_does_not_follow_symlinks(self):
+        calls = []
+
+        def fake_run(cmd, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout='4\tx\n', stderr='')
+
+        with patch.object(hygiene.subprocess, 'run', fake_run):
+            hygiene.du_bytes(self.home)
+        self.assertEqual(calls[0][:2], ['du', '-sPk'])
+
+
+@needs_311
+class ScanValidation(unittest.TestCase):
+    def good(self):
+        wt = {'path': '/x/wt', 'is_main': False, 'restricted': False, 'branch': 'b', 'tracked_changes': 0,
+              'untracked': 0, 'exclusive_commits': 0, 'unintegrated_commits': 0, 'locked': False,
+              'age_days': 30.0, 'size_bytes': 10, 'main_checkout': '/x/main', 'error': None}
+        ag = {'id': 'a1', 'provider': 'p', 'status': 'closed', 'age_days': 30.0, 'pending_permissions': 0,
+              'restricted': False, 'worktree': '/x/wt'}
+        return {'version': 1, 'generated_at': 'x', 'paseo_ok': True, 'worktrees': [wt], 'agents': [ag],
+                'launchd': [], 'disk': {'free_bytes': 1, 'total_bytes': 2},
+                'memory': {'pressure_level': None, 'free_percentage': None, 'swap_total_bytes': None,
+                           'swap_used_bytes': None},
+                'sizes_bytes': {k: None for k in hygiene.SIZES_SCHEMA}}
+
+    def test_valid_scan_gives_candidates(self):
+        res = {r['name']: r for r in hygiene.classify(self.good())}
+        self.assertEqual(res['/x/wt']['class'], hygiene.CANDIDATO)
+        self.assertEqual(res['a1']['class'], hygiene.CANDIDATO)
+
+    def test_missing_field_in_worktree_is_desconhecido_without_command(self):
+        scan = self.good()
+        del scan['worktrees'][0]['untracked']
+        res = hygiene.classify(scan)
+        wt = next(r for r in res if r['kind'] == 'worktree')
+        self.assertEqual((wt['class'], wt['commands']), (hygiene.DESCONHECIDO, []))
+        ag = next(r for r in res if r['kind'] == 'agente')
+        self.assertEqual((ag['class'], ag['commands']), (hygiene.DESCONHECIDO, []))
+        self.assertIn('DESCONHECIDO (2)', hygiene.render_plan(scan))
+
+    def test_non_numeric_count_is_desconhecido(self):
+        scan = self.good()
+        scan['worktrees'][0]['unintegrated_commits'] = 'zero'
+        scan['agents'][0]['age_days'] = True  # bool não vale como número
+        res = hygiene.classify(scan)
+        self.assertTrue(all(r['class'] == hygiene.DESCONHECIDO and not r['commands'] for r in res))
+
+    def test_bad_agent_blocks_linked_worktree(self):
+        scan = self.good()
+        del scan['agents'][0]['status']
+        wt = next(r for r in hygiene.classify(scan) if r['kind'] == 'worktree')
+        self.assertEqual(wt['class'], hygiene.DESCONHECIDO)
+
+    def test_null_proof_fields_never_candidate(self):
+        for field in ('locked', 'unintegrated_commits', 'tracked_changes'):
+            scan = self.good()
+            scan['worktrees'][0][field] = None
+            wt = next(r for r in hygiene.classify(scan) if r['kind'] == 'worktree')
+            self.assertEqual((wt['class'], wt['commands']), (hygiene.DESCONHECIDO, []), field)
+
+    def test_invalid_file_gives_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / 'bad.json'
+            for content in ('nao e json', '[]', '{"version": 2}', json.dumps({**self.good(), 'disk': {}})):
+                bad.write_text(content)
+                self.assertEqual(hygiene.main(['plan', '--scan', str(bad)]), 2, content)
+            self.assertEqual(hygiene.main(['plan', '--scan', str(Path(tmp) / 'nao-existe.json')]), 2)
+
+
+class OldPython(unittest.TestCase):
+    def test_cli_fails_clearly_on_python_below_3_11(self):
+        old_py = '/usr/bin/python3'
+        if not os.path.exists(old_py):
+            self.skipTest('sem /usr/bin/python3')
+        version = subprocess.run([old_py, '-c', 'import sys;print(sys.version_info[:2] < (3, 11))'],
+                                 capture_output=True, text=True).stdout.strip()
+        if version != 'True':
+            self.skipTest('/usr/bin/python3 já é >= 3.11')
+        out = subprocess.run([old_py, str(ROOT / 'scripts/hygiene.py'), 'plan'], capture_output=True, text=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn('requer Python >= 3.11', out.stderr)
+        self.assertIn('/opt/homebrew/bin/python3', out.stderr)
 
 
 if __name__ == '__main__':

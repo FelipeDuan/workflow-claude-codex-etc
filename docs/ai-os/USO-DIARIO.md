@@ -134,7 +134,9 @@ python3 scripts/hygiene.py plan --scan <arquivo> --out ~/.local/state/ai-os/higi
 python3 scripts/hygiene.py plan --days 14        # sem --scan, faz um scan novo em memória
 ```
 
-Como ler o plano (qualquer dúvida preserva):
+Requer Python >= 3.11 (reaproveita o `tomllib` do vigia). O `/usr/bin/python3` do macOS é 3.9: use `/opt/homebrew/bin/python3`, como o launchd do vigia; no 3.9 o CLI sai com mensagem clara. Tamanhos usam `du -sPk` (não segue symlinks). `plan --scan` valida a estrutura do arquivo: arquivo inválido dá erro, item adulterado vira DESCONHECIDO sem comando.
+
+Como ler o plano (qualquer dúvida preserva; o que não dá para provar, como lock ilegível ou busca de patch truncada em mais de 40 refs, vira DESCONHECIDO):
 
 - **PRESERVAR**: alteração local, untracked, commit sem equivalente em outra ref (`git cherry` cobre cherry-pick), lock, agente rodando/aguardando/recente, checkout principal, projeto restrito.
 - **CANDIDATO**: worktree limpa e parada há mais de N dias (padrão 7), ou agente `idle`/`closed` sem pendência há mais de N dias. Cada candidato traz o comando exato como sugestão, nunca executado. Rode à mão, um por vez, depois de conferir. O espaço recuperável é ESTIMADO (soma de bytes em disco das worktrees candidatas).

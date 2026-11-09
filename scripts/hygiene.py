@@ -43,6 +43,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+if sys.version_info < (3, 11):  # paseo_watchdog usa tomllib; no macOS use /opt/homebrew/bin/python3
+    sys.exit("hygiene: requer Python >= 3.11 (tomllib). Rode com /opt/homebrew/bin/python3, como o launchd do vigia.")
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paseo_watchdog as wd  # noqa: E402  (reuso de _state_dir, is_restricted, _git...)
 
@@ -97,7 +100,8 @@ def du_bytes(path: Path) -> int | None:
     if not path.exists():
         return None
     try:
-        out = subprocess.run(["du", "-sk", str(path)], capture_output=True, text=True, timeout=DU_TIMEOUT)
+        # -P: não segue symlinks (um link para fora não soma o alvo); -k: KiB; -s: total
+        out = subprocess.run(["du", "-sPk", str(path)], capture_output=True, text=True, timeout=DU_TIMEOUT)
         return int(out.stdout.split()[0]) * 1024
     except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
         return None
@@ -171,12 +175,25 @@ def registered_worktrees(repo: str) -> list[dict]:
     return entries
 
 
-def _other_refs(cwd: str, own_branch: str | None) -> list[str]:
+def _other_refs(cwd: str, own_branch: str | None) -> list[str] | None:
+    """Refs do repositório de origem (branches, remotes, tags...) menos a branch do worktree."""
     out = _git(cwd, "for-each-ref", "--format=%(refname)")
     if out is None:
-        return []
+        return None
     own = f"refs/heads/{own_branch}" if own_branch else None
     return [r for r in out.splitlines() if r and r != own and not r.endswith("/HEAD")]
+
+
+def _sibling_heads(cwd: str, self_path: str) -> list[str]:
+    """HEADs das outras worktrees do mesmo repo (cobre worktrees em HEAD destacado)."""
+    out = _git(cwd, "worktree", "list", "--porcelain")
+    heads, current, self_real = [], None, os.path.realpath(self_path)
+    for line in (out or "").splitlines():
+        if line.startswith("worktree "):
+            current = line[9:]
+        elif line.startswith("HEAD ") and current and os.path.realpath(current) != self_real:
+            heads.append(line[5:].strip())
+    return heads
 
 
 def inspect_worktree(path: str, branch_hint: str | None, is_main: bool) -> dict:
@@ -200,7 +217,13 @@ def inspect_worktree(path: str, branch_hint: str | None, is_main: bool) -> dict:
     lines = [ln for ln in status.splitlines() if ln]
     item["untracked"] = sum(1 for ln in lines if ln.startswith("??"))
     item["tracked_changes"] = len(lines) - item["untracked"]
-    item["locked"] = os.path.exists(os.path.join(gitdir.strip(), "locked"))
+    try:  # ausente = sem lock; qualquer outro erro = desconhecido (None)
+        os.stat(os.path.join(gitdir.strip(), "locked"))
+        item["locked"] = True
+    except FileNotFoundError:
+        item["locked"] = False
+    except OSError:
+        item["locked"] = None
     item["main_checkout"] = str(Path(common.strip()).parent)
     if branch_hint is None:
         sym = _git(path, "symbolic-ref", "--short", "-q", "HEAD")
@@ -208,21 +231,21 @@ def inspect_worktree(path: str, branch_hint: str | None, is_main: bool) -> dict:
     branch = item["branch"]
 
     refs = _other_refs(path, branch)
-    exclusive: list[str] = []
-    if refs:
-        rev = _git(path, "rev-list", "HEAD", "--not", *refs)
-        if rev is None:
-            item["error"] = "rev-list falhou"
-            return item
-        exclusive = rev.split()
-    else:
-        rev = _git(path, "rev-list", "HEAD")
-        exclusive = rev.split() if rev else []
+    if refs is None:
+        item["error"] = "for-each-ref falhou"
+        return item
+    heads = _sibling_heads(path, path)
+    rev = _git(path, "rev-list", "HEAD", "--not", *refs, *heads)
+    if rev is None:
+        item["error"] = "rev-list falhou"
+        return item
+    exclusive = rev.split()
     item["exclusive_commits"] = len(exclusive)
     pending = set(exclusive)
     if pending:
-        cherry_refs = [r for r in refs if r.startswith(("refs/heads/", "refs/remotes/"))][:MAX_CHERRY_REFS]
-        for ref in cherry_refs:
+        # só branches e remotes do repo de origem (e HEADs de outras worktrees) provam integração
+        eligible = [r for r in refs if r.startswith(("refs/heads/", "refs/remotes/"))] + heads
+        for ref in eligible[:MAX_CHERRY_REFS]:
             out = _git(path, "cherry", ref, "HEAD")
             if out is None:
                 continue
@@ -231,7 +254,16 @@ def inspect_worktree(path: str, branch_hint: str | None, is_main: bool) -> dict:
                     pending.discard(line[2:].strip())
             if not pending:
                 break
-    item["unintegrated_commits"] = len(pending)
+        if pending and not eligible:
+            item["unintegrated_commits"] = None
+            item["error"] = "sem refs elegíveis para comparar os patches"
+        elif pending and len(eligible) > MAX_CHERRY_REFS:
+            item["unintegrated_commits"] = None
+            item["error"] = f"busca de patch truncada (> {MAX_CHERRY_REFS} refs)"
+        else:
+            item["unintegrated_commits"] = len(pending)
+    else:
+        item["unintegrated_commits"] = 0
 
     if not is_main:  # o checkout principal inclui .git; não vale a caminhada
         size, newest = walk_size(path)
@@ -352,6 +384,57 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
 # ------------------------------------------------------------------ plano
 
 
+WT_SCHEMA = {"path": "str", "is_main": "bool", "restricted": "bool", "branch": "str?", "tracked_changes": "int?",
+             "untracked": "int?", "exclusive_commits": "int?", "unintegrated_commits": "int?", "locked": "bool?",
+             "age_days": "num?", "size_bytes": "int?", "main_checkout": "str?", "error": "str?"}
+AGENT_SCHEMA = {"id": "str", "provider": "str", "status": "str", "age_days": "num?", "pending_permissions": "int?",
+                "restricted": "bool", "worktree": "str?"}
+TOP_SCHEMA = {"generated_at": "str", "paseo_ok": "bool", "worktrees": "list", "agents": "list", "launchd": "list",
+              "disk": "dict", "memory": "dict", "sizes_bytes": "dict"}
+DISK_SCHEMA = {"free_bytes": "int", "total_bytes": "int"}
+MEMORY_SCHEMA = {"pressure_level": "str?", "free_percentage": "int?", "swap_total_bytes": "int?", "swap_used_bytes": "int?"}
+SIZES_SCHEMA = {k: "int?" for k in ("worktrees_escaneadas", "paseo_fora_worktrees", "claude", "codex", "ai_os_state",
+                                    "gemini", "library_caches_informativo")}
+
+
+def _kind_ok(value, kind: str) -> bool:
+    nullable = kind.endswith("?")
+    kind = kind.rstrip("?")
+    if value is None:
+        return nullable
+    if kind in ("int", "num", "bool") and isinstance(value, bool) != (kind == "bool"):
+        return False  # bool não vale como número e vice-versa
+    return isinstance(value, {"str": str, "int": int, "num": (int, float), "bool": bool, "list": list,
+                              "dict": dict}[kind])
+
+
+def schema_problem(obj, schema: dict) -> str | None:
+    if not isinstance(obj, dict):
+        return "item não é objeto"
+    for field, kind in schema.items():
+        if field not in obj:
+            return f"campo ausente: {field}"
+        if not _kind_ok(obj[field], kind):
+            return f"campo com tipo inválido: {field}"
+    return None
+
+
+def validate_scan(scan) -> None:
+    """Falha com erro claro se a estrutura geral do scan não é a esperada. Itens ruins são tratados em classify."""
+    if not isinstance(scan, dict):
+        raise HygieneError("scan inválido: não é um objeto JSON")
+    if scan.get("version") != SCHEMA_VERSION:
+        raise HygieneError(f"scan inválido: versão {scan.get('version')!r} (esperada {SCHEMA_VERSION})")
+    for name, schema in (("topo", TOP_SCHEMA),):
+        problem = schema_problem(scan, schema)
+        if problem:
+            raise HygieneError(f"scan inválido ({name}): {problem}")
+    for name in ("disk", "memory", "sizes_bytes"):
+        problem = schema_problem(scan[name], {"disk": DISK_SCHEMA, "memory": MEMORY_SCHEMA, "sizes_bytes": SIZES_SCHEMA}[name])
+        if problem:
+            raise HygieneError(f"scan inválido ({name}): {problem}")
+
+
 def _severity(klass: str) -> int:
     return {PRESERVAR: 2, DESCONHECIDO: 1, CANDIDATO: 0}[klass]
 
@@ -393,6 +476,9 @@ def classify_worktree(item: dict, linked: list[tuple[str, str]], paseo_ok: bool,
         return PRESERVAR, why
     if item["error"]:
         return DESCONHECIDO, [item["error"]]
+    for field in ("locked", "tracked_changes", "untracked", "unintegrated_commits", "main_checkout"):
+        if item[field] is None:  # não dá para provar: nunca vira candidato
+            return DESCONHECIDO, [f"não foi possível verificar: {field}"]
     if not paseo_ok:
         return DESCONHECIDO, ["Paseo indisponível: não dá para saber se há agente usando"]
     for klass, reason in linked:
@@ -409,11 +495,20 @@ def classify_worktree(item: dict, linked: list[tuple[str, str]], paseo_ok: bool,
 
 
 def classify(scan: dict, days: float = DEFAULT_DAYS) -> list[dict]:
-    by_path = {w["path"]: w for w in scan["worktrees"]}
-    own = [classify_agent(a, days) for a in scan["agents"]]
+    """Itens malformados viram DESCONHECIDO, sem comando sugerido."""
+    agents = scan["agents"]
+    agent_bad = [schema_problem(a, AGENT_SCHEMA) for a in agents]
+    own = [(DESCONHECIDO, f"item inconsistente no scan ({bad})") if bad else classify_agent(a, days)
+           for a, bad in zip(agents, agent_bad)]
     results = []
-    for item in scan["worktrees"]:
-        linked = [own[i] for i, a in enumerate(scan["agents"]) if a["worktree"] == item["path"]]
+    for n, item in enumerate(scan["worktrees"], 1):
+        bad = schema_problem(item, WT_SCHEMA)
+        if bad:
+            results.append({"kind": "worktree", "name": f"<worktree #{n} inválida>", "class": DESCONHECIDO,
+                            "why": [f"item inconsistente no scan ({bad})"], "commands": [], "bytes": 0, "size": None})
+            continue
+        linked = [own[i] for i, a in enumerate(agents) if not agent_bad[i] and a["worktree"] == item["path"]]
+        linked += [own[i] for i, a in enumerate(agents) if agent_bad[i] and isinstance(a, dict) and a.get("worktree") == item["path"]]
         klass, why = classify_worktree(item, linked, scan["paseo_ok"], days)
         commands = []
         if klass == CANDIDATO:
@@ -421,14 +516,18 @@ def classify(scan: dict, days: float = DEFAULT_DAYS) -> list[dict]:
             commands.append(f"git -C {shlex.quote(main)} worktree remove {shlex.quote(item['path'])}")
             if item["branch"]:
                 commands.append(f"git -C {shlex.quote(main)} branch -d {shlex.quote(item['branch'])}")
-        results.append({"kind": "worktree", "name": item["path"], "class": klass, "why": why,
-                        "commands": commands, "bytes": item["size_bytes"] or 0 if klass == CANDIDATO else 0})
-    for agent, (klass, reason) in zip(scan["agents"], own):
+        results.append({"kind": "worktree", "name": item["path"], "class": klass, "why": why, "commands": commands,
+                        "bytes": (item["size_bytes"] or 0) if klass == CANDIDATO else 0, "size": item["size_bytes"]})
+    by_name = {r["name"]: r for r in results if r["kind"] == "worktree"}
+    for n, (agent, (klass, reason)) in enumerate(zip(agents, own), 1):
+        if agent_bad[n - 1]:
+            results.append({"kind": "agente", "name": f"<agente #{n} inválido>", "class": klass, "why": [reason],
+                            "commands": [], "bytes": 0, "provider": "?", "status": "?"})
+            continue
         why = [reason]
-        wt = by_path.get(agent["worktree"]) if agent["worktree"] else None
+        wk = by_name.get(agent["worktree"]) if agent["worktree"] else None
         if klass == CANDIDATO:
-            if wt is not None:
-                wk = next(r for r in results if r["kind"] == "worktree" and r["name"] == wt["path"])
+            if wk is not None:
                 if wk["class"] != CANDIDATO:
                     klass, why = wk["class"], [f"worktree vinculada: {'; '.join(wk['why'])}"]
             else:
@@ -444,6 +543,7 @@ def gb(value: int | None) -> str:
 
 
 def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
+    validate_scan(scan)
     results = classify(scan, days)
     count = {k: {PRESERVAR: 0, CANDIDATO: 0, DESCONHECIDO: 0} for k in ("worktree", "agente")}
     for r in results:
@@ -478,8 +578,7 @@ def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
             extra = f" [{r['provider']}, {r['status']}]" if r["kind"] == "agente" else ""
             size = ""
             if r["kind"] == "worktree":
-                w = next(x for x in scan["worktrees"] if x["path"] == r["name"])
-                size = f" — {gb(w['size_bytes'])}"
+                size = f" — {gb(r['size'])}"
             out.append(f"- {r['kind']} `{r['name']}`{extra}{size}: {'; '.join(r['why'])}")
             for cmd in r["commands"]:
                 out.append(f"  - sugestão (NÃO executada): `{cmd}`")
@@ -522,9 +621,11 @@ def main(argv: list[str] | None = None) -> int:
     home, state = Path.home(), wd._state_dir()
     try:
         if args.cmd == "plan" and args.scan:
-            scan = json.loads(Path(args.scan).read_text(encoding="utf-8"))
-            if scan.get("version") != SCHEMA_VERSION:
-                raise HygieneError("versão de scan incompatível")
+            try:
+                scan = json.loads(Path(args.scan).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise HygieneError(f"não consegui ler o scan: {exc}") from exc
+            validate_scan(scan)
         else:
             roots = wd.load_restricted_roots(wd.MEMORY_POLICY_PATH)
             scan = build_scan(args.repo or _default_repo(), home, state, roots)
@@ -543,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"plano salvo em {args.out}", file=sys.stderr)
             else:
                 sys.stdout.write(text)
-    except (HygieneError, wd.PolicyError, OSError, ValueError, KeyError) as exc:
+    except (HygieneError, wd.PolicyError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"hygiene: {exc}", file=sys.stderr)
         return 2
     return 0
