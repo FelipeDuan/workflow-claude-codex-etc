@@ -251,4 +251,10 @@ Uma futura via Gemini API pelo Google AI Studio é um experimento separado, aind
 
 **Pendências para o Felipe decidir:** aposentar o claude-mem (checklist em `MEMORIA-E-CONTEXTO-2026-11.md`; ele injeta títulos de projetos restritos em sessões comuns); gravar páginas duráveis no ai-memory para as decisões vigentes (teste de retomada: ai-memory 0/6, STATUS+git 6/6); cancelar handoffs obsoletos; Gemini API (experimento); POC Swift do Apple FM.
 
-**Próximo passo exato:** usar o fluxo novo (preflight → `ai_os_task.py open` → `paseo run --title "[T-...] ..."` → `link` → `close`) nas próximas tarefas e gerar `report.py` semanalmente; baseline observacional de 2–4 semanas antes de experimentos (protocolo GQM, seção 2).
+**Próximo passo exato (abrir sessão NOVA, não retomar esta):** v0.2.1 publicada. Pendentes da estabilização, nesta ordem, cada um com preflight + `ai_os_task.py open/link/close`:
+1. **B — reconciliar a baseline** (Sonnet + Haiku conferindo): explicar 154 (SHA, `git log --all`) × 158 (patch-id por repo) em S1 usando `~/.local/state/ai-os/metricas/20261109-v02/commits-snapshot.json` (já confirmado: nenhum patch de S1 em mais de um repo; o 132 veio de código intermediário não preservado); documentar população, refs e algoritmo em `BASELINE-2026-11-09.md`; commits ficam como indicador auxiliar.
+2. **C — recursos no relatório** (Codex): `report.py` incorpora o último `hygiene scan` (memória por componente via footprint do `top`, swap, pressão, órfãos/resíduos, disco por classe) na Q5.
+3. **D — teste de retomada do ai-memory** (Sonnet): repetir o protocolo de `MEMORIA-E-CONTEXTO-2026-11.md` (n≥5, condições controladas) e achar a causa do 0/6 (briefing raso? handoffs sem decisão? páginas duráveis ausentes?) antes de gravar páginas duráveis.
+4. Ajuste menor: `ai_os_task.py close` mostrar só a contagem de processos DESCONHECIDO (hoje lista um por um).
+5. Órfão novo achado pela ferramenta: `node` do portfólio (lab-opa, porta 4351, agente closed há ~93 h) — encerrar só com ok do Felipe, via comando guardado do `hygiene.py plan`.
+Depois: 1–2 semanas de uso real com `report.py` semanal; Gemini API e Apple FM só depois (protocolo GQM, seção 2).
