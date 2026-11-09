@@ -41,7 +41,7 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 - Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`.
 - Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
 - OpenCode mode IDs: `build`, `plan`. Pass mode IDs, not UI labels (`Build` is rejected).
-- Antigravity (`antigravity/<model>`, e.g. `gemini-3.8-flash-medium`): only mode ID `full-access`, which runs `agy` with no approval gate (I-32, draft ADR-0005). Use it only for low/medium-risk tasks in a new Paseo worktree with `--base`, and only after `paseo daemon config get agents.providers` shows the `--sandbox` override. Never in restricted projects unless Felipe explicitly allows it. Prefer `gemini-*` models; Claude models through `agy` would run with bypassed permissions. Its quota is not in `paseo usage`: treat it as `unknown`.
+- Antigravity (`antigravity/<model>`, e.g. `gemini-3.8-flash-medium`): only mode ID `full-access` (no approval gate, I-32). Rules and models in the Antigravity section below.
 - Inside Paseo, use injected MCP tools `create_workspace` then `create_agent`. Explicitly set the base branch, provider/model and `settings.modeId`; children do not inherit model or mode (I-19). Apply the same ownership and permission limits.
 - Record each agent ID and worktree/branch. Await completion notifications inside Paseo without polling.
 
@@ -66,6 +66,23 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 ```json
 {"date":"YYYY-MM-DD","task":"<task>","category":"<category>","risk":"low","complexity":"low","divisible":false,"harness":"<harness>","model":"<model>","duration_s":null,"tests_passed":null,"human_corrections":0,"handoff":false,"outcome":"<outcome>","notes":"<evidence or unavailable measurements>"}
 ```
+
+## Antigravity (Gemini)
+
+`agy` 1.5.3, provider `antigravity` in Paseo. Verified on 09/11/2026: `agy models`, `agy -p "/usage"`. Cost columns are hypotheses (Google publishes no per-model weights); measure with `/usage` before and after a standard task.
+
+| Model (`-low/-medium/-high` = reasoning level) | Relative cost | Best use |
+|---|---|---|
+| `gemini-3.8-flash` | lowest (hypothesis) | trivial, volume, long reading, 1M context |
+| `claude-sonnet-5-5` | medium (hypothesis) | routine implementation, tests, docs |
+| `gemini-4-argon` | high; own weekly bar (verified) | second opinion from another family, long context, images/video |
+| `claude-opus-5-5` | highest (hypothesis) | hard tasks only; not cross-family for Claude-written code |
+| `gpt-oss-120b-medium` | unknown | fallback; may leave after 18/11 |
+
+- Quota pools (verified): "Gemini Models" and "Claude and GPT models", each with 5h and weekly windows; Argon has an extra weekly bar. Claude via `agy` spends Google quota, not Anthropic's. Read with `agy -p "/usage"` (spends nothing). `quota/antigravity.json` is being implemented; until it exists, quota is `unknown`.
+- Prefer Antigravity over Codex/OpenCode/native Claude when: Codex or Claude is above the 85%/75% thresholds; a Google-family reviewer is wanted for code written by Claude or Codex; the input is very long or visual; OpenCode free is out of quota.
+- Prefer others when: high-risk decisions (native Claude or Codex Astra), tasks needing the project's skills/hooks (native Claude), tasks with a deadline and an unmeasured pool.
+- Safety (draft ADR-0005): only `low`/`medium` levels, in a new Paseo worktree, with the `--sandbox` override active, no credentials in the environment, review the diff, never in restricted projects. Claude models via `agy` also run without per-action approval.
 
 ## Output contract
 

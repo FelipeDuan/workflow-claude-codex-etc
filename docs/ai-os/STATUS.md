@@ -16,7 +16,7 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 | OpenCode | 2.0.32 (fixada; npm com integridade sha512, em `~/.opencode`) | CONFIRMADO FUNCIONAL (laboratório) | serviço movido para a porta 49375 (conflito com o ai-memory em 49374); plugin + MCP do ai-memory; descobre as skills de `~/.claude/skills` e `~/.agents/skills`; modelos `opencode/*-free` sem login | política de permissões; AGENTS.md global; provedor econômico com login |
 | Paseo | — | PENDENTE | não instalado | verificar procedência e instalação oficial |
 | AI-Memory | 3.2.0 (fixada) | EXPERIMENTAL: handoff Claude→Codex ok, Codex→Claude parcial | binário em `~/.local/lib/ai-memory`; LaunchAgent `com.github.akitaonrails.ai-memory` em 127.0.0.1:49374 com bearer token; hooks Claude+Codex em **allowlist** (só repos com `.ai-memory.toml`), `--project-strategy repo-root`; MCP Claude via `mcp-bridge` conectado | resolver lacunas do T2 |
-| Antigravity / Gemini | — | EXPERIMENTAL (opcional) | não instalado | fora do caminho crítico |
+| Antigravity / Gemini | 1.5.3 | EXPERIMENTAL, integrado (09/11) | `agy` via brew cask; provider `antigravity` no Paseo (só `full-access`, override `--sandbox`); guia de modelos em `MODELOS_2026.md` e na skill; ADR-0005 proposto | só baixo/médio risco, fora de projeto restrito; cota via `agy -p "/usage"` |
 | DeepSeek Harness | — | PENDENTE | não instalado | só com justificativa |
 | Handoff entre harnesses | ai-memory 3.2.0 | CONFIRMADO FUNCIONAL (laboratório) | Claude → Codex → OpenCode → Claude, ver T2 | testar parada abrupta |
 | Failover automático | — | PENDENTE | — | só depois do handoff manual |
@@ -216,6 +216,10 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 **Aguardando o Felipe**
 - Perfis na UI do Paseo; notificações do Paseo e do Editor de Script permitidas; conferir o treino desligado nas contas.
 - Decisões do SGG: pauta 04, seis decisões de integrações (13 §13), posicionamento (08/09).
+
+**Aguardando confirmação do Felipe: higiene (09/11/2026, nada foi apagado; ver `RETROSPECTIVA-2026-11.md`)**
+- Agentes Paseo `idle` (9, 4 a 13 dias) e `error` (8): conferir se o trabalho foi refeito e fechar com `paseo delete <id>`. `fotos-fora-do-codigo` tem pedido de rede pendente.
+- `~/.paseo/worktrees`: ~11 GB em 70 diretórios. Verificar `git status` e branch de cada um antes de remover; os de 10 h não mexer.
 
 **Depois**
 - M1 (roteamento consultivo + telemetria automática), A/B das skills de design, backlog (Claude Code Setup, Serena, Headroom, Task Observer), desligar a captura do Claude-Mem (meados de novembro), sugestões à Bea.

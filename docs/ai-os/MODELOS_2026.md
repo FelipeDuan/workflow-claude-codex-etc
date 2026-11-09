@@ -7,6 +7,24 @@
 - **Claude/Codex:** permanecer nos CLIs oficiais para poder aproveitar as respectivas assinaturas. Detectar modelos/níveis de esforço reais localmente, não presumir que alias do benchmark é ID válido na CLI.
 - **NVIDIA/DeepSeek/GLM/Kimi/Qwen:** possíveis trabalhadores de tarefas de baixo risco (somente material pessoal publicável se termos permitirem). Cotas grátis/termos/privacidade são variáveis e exigem verificação por provedor, não garantia de disponibilidade.
 
+## Antigravity (agy 1.5.3), verificado em 09/11/2026
+
+Modelos em `agy models`: `gemini-4-argon`, `gemini-3.8-flash`, `claude-opus-5-5`, `claude-sonnet-5-5` (cada um com sufixos `-low/-medium/-high`, nível de raciocínio) e `gpt-oss-120b-medium`. Plano e preços: Pro ou Ultra provável, não confirmado (`/usage` não mostra o plano).
+
+| Modelo | Custo relativo | Forças |
+|---|---|---|
+| gemini-3.8-flash | menor (hipótese) | trivial, volume, leitura longa, contexto 1M, imagem |
+| claude-sonnet-5-5 | médio (hipótese) | implementação rotineira, testes, docs |
+| gemini-4-argon | alto; barra semanal própria (verificado) | segunda opinião de outra família, contexto 1M, imagem/vídeo |
+| claude-opus-5-5 | maior (hipótese) | tarefa difícil; não é revisão de outra família para código escrito por Claude |
+| gpt-oss-120b-medium | desconhecido | fallback; a página de modelos indica remoção em 18/11/2026 |
+
+- Pools de franquia (verificado com `agy -p "/usage"`, que não gasta cota): "Gemini Models" e "Claude and GPT models", cada um com janelas de 5h e semanal; "Gemini 4 Argon" tem barra semanal própria. Claude via `agy` gasta cota Google, não a da Anthropic (inferência, sem fonte direta).
+- O Google não publica peso por modelo. A ordem de custo acima vem de preço de API e comportamento esperado; medir `/usage` antes e depois de uma tarefa padrão. `scripts/quota_antigravity.py` (em implantação) vai gravar `~/.local/state/ai-os/quota/antigravity.json`.
+- Não verificado: qual plano a conta tem; se `AI Credit Overages` está em `Always` (pode gerar cobrança; conferir); desempenho por tipo de tarefa (frontend, docs, testes). Preço promocional do Argon vale até 30/11 segundo fontes secundárias.
+- Segurança: ver ADR-0005 (proposto) e I-32. Só `low`/`medium`, worktree isolado, nunca em projeto restrito.
+- Fontes: https://antigravity.google/docs/models ; https://antigravity.google/docs/plans
+
 ## Regra de ranking
 
 Role é independente de modelo; classificar tarefa por risco/escopo/ambiguidade e medir retrabalho. Frontier para decisões arriscadas; modelo econômico para tarefas com testes rápidos e baixo blast radius. Revisão cega por família diferente. Não tornar custo de API do Argon ou Claude API equivalente a consumo da assinatura.

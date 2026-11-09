@@ -69,5 +69,35 @@
     "revisor_independente_para_alto_risco": true,
     "nao_equivaler_assinatura_e_api": true,
     "proibir_autoinstalacao_plugins_terceiros": true
+  },
+  "antigravity_modelos": {
+    "nota": "Custo relativo e usos sao hipoteses (Google nao publica pesos por modelo); medir com agy -p /usage antes e depois. Verificado em 09/11/2026: lista de modelos e pools de franquia. Sufixos low/medium/high = nivel de raciocinio; usar so low/medium (ADR-0005 proposto).",
+    "pools": [
+      "Gemini Models (5h e semanal)",
+      "Claude and GPT models (5h e semanal)",
+      "Gemini 4 Argon (semanal proprio)"
+    ],
+    "modelos": {
+      "gemini-3.8-flash": {
+        "custo_relativo": "menor (hipotese)",
+        "forcas": "trivial, volume, leitura longa, contexto 1M, imagem"
+      },
+      "claude-sonnet-5-5": {
+        "custo_relativo": "medio (hipotese)",
+        "forcas": "implementacao rotineira, testes, docs"
+      },
+      "gemini-4-argon": {
+        "custo_relativo": "alto; barra semanal propria (verificado)",
+        "forcas": "segunda opiniao de outra familia, contexto 1M, imagem/video"
+      },
+      "claude-opus-5-5": {
+        "custo_relativo": "maior (hipotese)",
+        "forcas": "tarefa dificil; nao e revisao cross-family para codigo escrito por Claude"
+      },
+      "gpt-oss-120b-medium": {
+        "custo_relativo": "desconhecido",
+        "forcas": "fallback; pode sair em 18/11/2026"
+      }
+    }
   }
 }
