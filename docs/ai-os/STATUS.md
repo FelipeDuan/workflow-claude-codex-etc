@@ -236,17 +236,17 @@ Uma futura via Gemini API pelo Google AI Studio é um experimento separado, aind
 
 ## Frente: Observabilidade e evolução com evidência (RFC do GPT), 09/11/2026
 
-**Origem:** debate briefing → parecer do GPT → contraproposta (arquivos em `~/Workspace/tools/conversa-gpts/`). Versão enxuta aprovada pelo Felipe: JSONL e dados já no disco antes de SQLite; protocolo GQM antes da coleta; nenhuma limpeza destrutiva; merge na `main` só com aprovação.
+**Origem:** debate briefing → parecer do GPT → contraproposta (arquivos em `~/Workspace/tools/conversa-gpts/`). Versão enxuta aprovada pelo Felipe: JSONL e dados já no disco antes de SQLite; protocolo GQM antes da coleta; limpeza só em modo diagnóstico.
 
-**Branches locais (sem push):**
-- `fix/antigravity-compliance` (8bf9992): P0a, ADR-0006. O provider do Paseo já foi desligado em `~/.paseo/config.json` (backup `config.json.bak-20261109-p0a`).
-- `feat/quota-history-and-transitions` (sobre a anterior): P1. O vigia grava `<state>/history/{quota,agents,collector}-AAAA-MM.jsonl`. Revisão cruzada: 9 achados corrigidos. 123 testes.
-- `chore/baseline-v0.1` (8e4ccfb): P0b, `scripts/metrics/` reproduz o briefing (`docs/ai-os/BASELINE-2026-11-09.md`).
-- `docs/gqm-protocol-v1` (45fee32): P0c, `docs/research/PROTOCOLO-GQM.md` e `LITERATURA.md`.
-- Tag local `baseline-2026-11-09` = f7d355e (estado antes da intervenção).
+**Publicado (main, ativo no vigia em produção):**
+- `v0.1.0` (f0507a3): ADR-0006 (Antigravity só uso direto; provider do Paseo desligado), histórico do vigia em `~/.local/state/ai-os/history/{quota,agents,collector}-AAAA-MM.jsonl`, `scripts/metrics/` reproduz o briefing, `docs/research/PROTOCOLO-GQM.md` e `LITERATURA.md`. Tag `baseline-2026-11-09` = f7d355e (antes da intervenção).
+- `v0.2.0`: `scripts/ai_os_task.py` (open/link/close/reopen de tarefas; título do agente com prefixo `[T-...]`), `scripts/metrics/report.py` (relatório Q1–Q5 com n e measured/estimated/unknown), commits deduplicados por patch-id por repo com snapshot privado, `docs/ai-os/roteamento.json` como política canônica + `scripts/preflight.py` consultivo (ADR-0007), `scripts/hygiene.py scan|plan` (só diagnóstico), `docs/ai-os/MEMORIA-E-CONTEXTO-2026-11.md`.
+- Requisito: scripts novos exigem Python ≥ 3.11 (`/opt/homebrew/bin/python3`); no 3.9 do sistema os testes pulam.
 
-**Ainda não ativo:** o vigia em produção roda do checkout `workflow-ai/` e continua com o código antigo, inclusive a leitura `agy -p "/usage"`, até as branches serem integradas.
+**Achados que mudam leituras anteriores:** commits/dia do briefing estavam inflados por cherry-picks; pelo método oficial (patch-id por repo, snapshot `~/.local/state/ai-os/metricas/20261109-v02/commits-snapshot.json`) S1 = 158 e S2 = 269 (≈14 → 34/dia). Contagem por SHA deriva quando branches são apagadas (176 → 160 → 154 no mesmo dia). A CLI do Paseo não expõe labels; o vínculo de tarefa usa prefixo no título + `link`.
 
-**Achados:** a CLI do Paseo não expõe `--label` em `ls`/`inspect --json` (só o MCP), então o vínculo de tarefa do P2 usa outro caminho (prefixo no título ou registro próprio). Commits de S1 no briefing estavam contados em dobro (originais + cherry-picks); o P2 deve deduplicar por patch-id.
+**Saúde do Mac (scan de 09/11):** swap 11,3 de 12 GB, pressão de memória em aviso, 18 GB livres no disco. Worker do claude-mem roda desde 27/10.
 
-**Próximo passo exato:** Felipe revisa e aprova a integração (ordem: P0a → P1 → P0b → P0c em `feat/ai-os-v2`, fast-forward da `main`, tag `v0.1.0`, `./install.sh` se preciso), depois P2 (ledger de tarefa + relatório), P3 (política única + preflight dry-run), P4 (higiene dry-run), P5 (memória/contexto).
+**Pendências para o Felipe decidir:** aposentar o claude-mem (checklist em `MEMORIA-E-CONTEXTO-2026-11.md`; ele injeta títulos de projetos restritos em sessões comuns); gravar páginas duráveis no ai-memory para as decisões vigentes (teste de retomada: ai-memory 0/6, STATUS+git 6/6); cancelar handoffs obsoletos; Gemini API (experimento); POC Swift do Apple FM.
+
+**Próximo passo exato:** usar o fluxo novo (preflight → `ai_os_task.py open` → `paseo run --title "[T-...] ..."` → `link` → `close`) nas próximas tarefas e gerar `report.py` semanalmente; baseline observacional de 2–4 semanas antes de experimentos (protocolo GQM, seção 2).
