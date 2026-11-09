@@ -78,4 +78,25 @@ Projetos pessoais privados também podem conter dados pessoais sensíveis, crede
 - Verificar elegibilidade contratual e modelos ZDR Alibaba; não presumir que um workspace ZDR protege qualquer modelo.
 - Conferir termos e disponibilidade NVIDIA do endpoint exato; preço de parceiro não é preço NVIDIA.
 
+## Antigravity CLI (Gemini), adicionado em 09/11/2026
+
+Harness do Google, não API paga. Usa a conta Google do Felipe e entra no Paseo pelo provider embutido `antigravity`.
+
+- Instalação: `brew install --cask antigravity-cli` (cask com auto_updates), binário `/opt/homebrew/bin/agy`, versão 1.5.3. O Paseo exige 1.1.15 ou mais.
+- Login: OAuth no navegador, só o Felipe faz (`agy` sem argumentos). Em 09/11, `agy models` listou 13 modelos: `gemini-4-argon-{low,medium,high}`, `gemini-3.8-flash-{low,medium,high}`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*` e `gpt-oss-120b-medium`.
+- Franquia (Google AI Pro ou gratuito), limites por janela e consumo por modelo: não confirmado. O `paseo usage` não mostra o Antigravity.
+- Treino, retenção e jurisdição dos prompts nesta conta: não confirmado. Até verificar, nada institucional nem de projeto restrito.
+
+| O que | Onde o `agy` lê | Evidência |
+|---|---|---|
+| Regras globais | `~/.gemini/config/AGENTS.md` (também `GEMINI.md`, ou os dois em `~/.gemini/`); o `install.sh --only antigravity` cria o link | changelog do 1.5.3 e teste em 09/11: o agente citou a 1ª linha do AGENTS.md |
+| Regras do projeto | `GEMINI.md`/`AGENTS.md` subindo até a raiz do repo, e `.agents/rules/` | skill embutida `agy-customizations` |
+| Skills | `~/.gemini/config/skills/<nome>/` ou entradas de `~/.gemini/config/skills.json`; o install declara `~/.agents/skills` | docs embutidas + teste: `ai-os-orchestration` e `code-review-checklist` visíveis |
+| MCP | `~/.gemini/config/mcp_config.json` (`mcpServers`; HTTP usa `serverUrl`) | docs embutidas + teste: ferramentas `memory_*` visíveis |
+| Hooks | `~/.gemini/config/hooks.json` | changelog; criado pelo `ai-memory install-hooks` |
+| Settings e permissões | `~/.gemini/antigravity-cli/settings.json`; por projeto em `~/.gemini/config/projects/` | guia embutido (`antigravity_guide`) e changelog; não usado nesta integração |
+| Subagentes próprios | `~/.gemini/config/` (formato Markdown) | não verificado; os agentes do repo não foram convertidos |
+
+ai-memory 3.2.0 tem suporte nativo (`antigravity-cli`): `ai-memory install-mcp --client antigravity-cli --apply` grava o `mcp-bridge` (mesmo padrão do Codex, sem token no ambiente) e `ai-memory install-hooks --agent antigravity-cli --apply` grava os hooks. A captura segue a allowlist do `.ai-memory.toml`. Como o `agy` não tem evento de fim de conversa, o handoff aparece depois de 10 min sem atividade, ou na hora com `ai-memory finalize-session --agent antigravity-cli`.
+
 Nota de estado: pesquisa documental concluída com as lacunas acima, texto revisado com a skill humanizer. Nenhuma conta criada, chave usada, configuração instalada ou commit realizado. Próximo passo: Felipe escolher se deseja testar uma opção para dados públicos; contratação e configuração exigem uma nova ação explícita.

@@ -219,3 +219,23 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 
 **Depois**
 - M1 (roteamento consultivo + telemetria automática), A/B das skills de design, backlog (Claude Code Setup, Serena, Headroom, Task Observer), desligar a captura do Claude-Mem (meados de novembro), sugestões à Bea.
+
+## Frente: Antigravity CLI (Gemini), 09/11/2026. EXPERIMENTAL
+
+**Estado:** `agy` 1.5.3 instalado (brew cask) e autenticado; provider `antigravity` do Paseo `available` com 13 modelos. ai-memory (MCP via `mcp-bridge` + hooks) e `install.sh --only antigravity` aplicados.
+
+**Verificado**
+- Override `agents.providers.antigravity.command = ["/opt/homebrew/bin/agy","--sandbox"]` aplicado com `paseo reload`, sem reiniciar o daemon (backup `~/.paseo/config.json.bak-20261109`). `agy --sandbox --version` imprime só `1.5.3`.
+- Smoke test pelo Paseo (`gemini-3.8-flash-low`, diretório descartável): processo com `--sandbox` antes dos flags do provider; arquivo escrito; `ls ~/.ssh` bloqueado (`Operation not permitted`). Agente arquivado.
+- `agy -p` carregou o AGENTS.md global (`~/.gemini/config/AGENTS.md`), as skills de `~/.agents/skills` (via `~/.gemini/config/skills.json`) e as ferramentas `memory_*`.
+- `ai-memory doctor` no repo: `antigravity-cli 1 local → 1 captured`.
+- Testes: `python3 -m unittest discover -s tests` 83 OK (novo `tests/test_install_antigravity.py`); `scripts/check.sh` 8/8 PASS.
+
+**Decisões em vigor:** só risco baixo/médio, em worktree isolado, nunca em projeto restrito (fora de `allowed_models`); ver I-32 e rascunho ADR-0005.
+
+**Pendências**
+- Felipe: aceitar ou ajustar o ADR-0005 (Proposto).
+- Franquia e política de dados da conta Google: não confirmadas.
+- O link `~/.gemini/config/AGENTS.md` aponta para este worktree; os outros harnesses apontam para `workflow-ai/AGENTS.md`. Depois do merge em `feat/design-workflow-v1`, rodar `./install.sh --only antigravity` a partir de `workflow-ai/` para alinhar.
+- Subagentes do repo não convertidos para o formato do `agy`; o autoenable do ai-memory (`scripts/ai_memory_autoenable.py`) não cobre o `agy`.
+- Rollback: `paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]}}'` + `paseo reload`; backups de `~/.gemini/config` em `~/.workflow-ai-backup/20261109-agy/`.

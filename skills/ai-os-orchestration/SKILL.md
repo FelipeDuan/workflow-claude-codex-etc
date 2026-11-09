@@ -1,6 +1,6 @@
 ---
 name: ai-os-orchestration
-description: Orchestrate work across native specialists and Paseo providers. Use when the user wants to delegate, split tasks, parallelize, use Codex or OpenCode, save Claude quota, obtain review from another model family, or execute an approved plan with several agents. Trigger by semantic intent, including requests in Portuguese.
+description: Orchestrate work across native specialists and Paseo providers. Use when the user wants to delegate, split tasks, parallelize, use Codex, OpenCode or Antigravity (Gemini), save Claude quota, obtain review from another model family, or execute an approved plan with several agents. Trigger by semantic intent, including requests in Portuguese.
 ---
 
 # AI OS orchestration
@@ -41,6 +41,7 @@ paseo run --no-wait --title <t> --provider <provider/model> --mode <mode> --new-
 - Codex modes: `auto`, `auto-review`, `full-access`. Default to `auto-review`; never use `full-access`.
 - Claude mode IDs: `plan`, `default`, `acceptEdits`, `auto`. Never use `bypassPermissions`.
 - OpenCode mode IDs: `build`, `plan`. Pass mode IDs, not UI labels (`Build` is rejected).
+- Antigravity (`antigravity/<model>`, e.g. `gemini-3.8-flash-medium`): only mode ID `full-access`, which runs `agy` with no approval gate (I-32, draft ADR-0005). Use it only for low/medium-risk tasks in a new Paseo worktree with `--base`, and only after `paseo daemon config get agents.providers` shows the `--sandbox` override. Never in restricted projects unless Felipe explicitly allows it. Prefer `gemini-*` models; Claude models through `agy` would run with bypassed permissions. Its quota is not in `paseo usage`: treat it as `unknown`.
 - Inside Paseo, use injected MCP tools `create_workspace` then `create_agent`. Explicitly set the base branch, provider/model and `settings.modeId`; children do not inherit model or mode (I-19). Apply the same ownership and permission limits.
 - Record each agent ID and worktree/branch. Await completion notifications inside Paseo without polling.
 

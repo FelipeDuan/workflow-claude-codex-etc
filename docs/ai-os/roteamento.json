@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity candidato somente se instalado/autenticado e compatível; não é API paga; DeepSeek Harness opcional.",
+  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity: instalado e autenticado em 09/11/2026; no Paseo so existe o modo full-access (sem aprovacao), entao vale o rascunho ADR-0005: so risco baixo/medio, worktree isolado, override --sandbox ativo, nunca em projeto restrito. Nao e API paga; DeepSeek Harness opcional.",
   "classes": {
     "high": [
       {
@@ -10,11 +10,6 @@
       {
         "harness": "codex",
         "perfil": "frontier-implementacao"
-      },
-      {
-        "harness": "antigravity",
-        "perfil": "frontier-independent-review",
-        "condicao": "Google AI Pro, Argon realmente disponivel e integracao suportada"
       }
     ],
     "medium": [
@@ -29,7 +24,7 @@
       {
         "harness": "antigravity",
         "perfil": "second-opinion",
-        "condicao": "modelo confirmado, privacy ok"
+        "condicao": "modo full-access com --sandbox, worktree isolado, revisao do diff; franquia unknown"
       }
     ],
     "low": [
@@ -40,6 +35,11 @@
       {
         "harness": "codex",
         "perfil": "implementacao"
+      },
+      {
+        "harness": "antigravity",
+        "perfil": "economico-gemini",
+        "condicao": "gemini-3.8-flash, worktree isolado, --sandbox ativo; franquia unknown"
       }
     ]
   },
@@ -52,8 +52,7 @@
     ],
     "pessoal-restrito": [
       "claude",
-      "codex",
-      "antigravity"
+      "codex"
     ],
     "institucional": [
       "claude",

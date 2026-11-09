@@ -43,6 +43,7 @@ Um Claude aberto **dentro do Paseo** recebe notificações dos filhos (acorda qu
 ```sh
 paseo run --provider codex --new-workspace worktree --worktree-slug <nome> "<tarefa>"   # agente novo em worktree próprio
 paseo run --provider opencode/opencode/deepseek-v4.1-flash-free --new-workspace worktree "<tarefa>"
+paseo run --provider antigravity/gemini-3.8-flash-medium --mode full-access --new-workspace worktree --worktree-slug <nome> --base <branch> "<tarefa>"   # Gemini: ver abaixo
 paseo ls                     # agentes (atenção: "running" pode ser espera de aprovação)
 paseo wait <id>              # mostra se está esperando aprovação ou terminou
 paseo logs <id>              # o que o agente fez
@@ -50,6 +51,18 @@ paseo delete <id>            # encerra e apaga o agente
 ai-memory run codex          # continuar de onde o último agente parou (terminal)
 ai-memory run --fresh codex  # tarefa nova no Codex (terminal)
 ```
+
+## Antigravity (Gemini) no Paseo
+
+O provider só aceita o modo `full-access`: o `agy` roda sem pedir aprovação (I-32). Por isso:
+
+- só tarefas de risco baixo ou médio, sempre em worktree novo com `--base`; nunca em projeto restrito;
+- confira antes que o override com `--sandbox` está ativo: `paseo daemon config get agents.providers`;
+- prefira `gemini-*` (`paseo provider models antigravity`). Os modelos Claude do `agy` rodariam com bypass;
+- a franquia não aparece em `paseo usage`: trate como desconhecida;
+- o ai-memory captura a sessão por hooks, mas o `agy` não tem evento de fim de conversa. Para passar o bastão na hora: `ai-memory finalize-session --agent antigravity-cli`.
+
+Regra proposta no rascunho ADR-0005, que ainda aguarda o Felipe.
 
 ## Vigia dos agentes do Paseo
 
@@ -108,10 +121,10 @@ Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos A
 ## Configuração local do Paseo (já aplicada)
 
 ```sh
-paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]}}'
+paseo daemon config set agents.providers '{"opencode":{"command":["/Users/felipe/.opencode/bin/opencode"]},"antigravity":{"command":["/opt/homebrew/bin/agy","--sandbox"]}}'
 paseo daemon config set features.dictation.enabled false
 paseo daemon config set features.voiceMode.enabled false
-paseo daemon restart
+paseo daemon restart   # se só agents.providers mudou, basta paseo reload (I-21)
 ```
 
 Não instalar o plugin Continuity (ver `AUDITORIA-CONTINUITY.md`). Não ligar o relay nem expor a porta sem decidir antes (Tailscale é o caminho preferido para o celular).
