@@ -217,6 +217,10 @@ Warn before any destructive action. Never run these without explicit confirmatio
 - Don't create an explicit handoff unless Felipe asks; it duplicates the automatic one.
 - Memory is history, not truth: Git, code, tests and accepted ADRs win. Check what memory says before acting on it.
 
+## Processes you start
+
+- A dev/preview server you start is yours: stop it before finishing (e.g. `astro dev stop`, or the PID you started) and report port/PID in your final note. Leave nothing running in the background.
+
 ## Response template
 
 Use this whenever it fits (replies are in pt-BR):

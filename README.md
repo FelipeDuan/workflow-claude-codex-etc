@@ -84,8 +84,9 @@ Outras proteções:
 
 O `--harden` faz um merge que só acrescenta. Valores existentes diferentes são mantidos, com aviso:
 
-- Claude (`~/.claude/settings.json`): `env` com `IMPECCABLE_NO_TELEMETRY=1`, `IMPECCABLE_NO_UPDATE_CHECK=1` e `DO_NOT_TRACK=1`; `permissions.deny` bloqueando `npx impeccable install`, `npx impeccable update` e `impeccable hooks on` (inclusive com caminho na frente).
-- Codex: as mesmas três variáveis em `[shell_environment_policy.set]` no `config.toml`, e o arquivo `~/.codex/rules/workflow-ai.rules`, que proíbe `npx impeccable install|update`. Se o `config.toml` já tiver `shell_environment_policy.set`, nada é alterado e o script mostra o que acrescentar à mão.
+- Claude (`~/.claude/settings.json`): `env` com `IMPECCABLE_NO_TELEMETRY=1`, `IMPECCABLE_NO_UPDATE_CHECK=1`, `DO_NOT_TRACK=1`, `ASTRO_DEV_BACKGROUND=0` e `ASTRO_PREVIEW_BACKGROUND=0` (o Astro 7+ sobe `dev`/`preview` em background quando detecta agente; I-35); `permissions.deny` bloqueando `npx impeccable install`, `npx impeccable update` e `impeccable hooks on` (inclusive com caminho na frente).
+- Codex: as mesmas variáveis em `[shell_environment_policy.set]` no `config.toml`, e o arquivo `~/.codex/rules/workflow-ai.rules`, que proíbe `npx impeccable install|update`. Se o `config.toml` já tiver a tabela `[shell_environment_policy.set]`, só as chaves ausentes são inseridas logo abaixo do cabeçalho (valores existentes ficam, com aviso); `set` em outro formato (inline) não é alterado e o script mostra o que acrescentar à mão.
+- OpenCode: sem ponto de env gerenciado pelo repo (o install.sh só linka o AGENTS.md); `ASTRO_*_BACKGROUND=0` não é aplicado lá. Lacuna conhecida, coberta só pela regra do AGENTS.md.
 - Limitação no Codex: `<caminho>/impeccable hooks on` não é coberto, porque `prefix_rule` casa pelo primeiro token e aqui ele é um caminho variável.
 
 Não existe desinstalador. Para desfazer, use o `MANIFEST.tsv` do run que quer reverter:

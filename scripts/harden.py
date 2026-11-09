@@ -22,6 +22,7 @@ Código de saída:
 """
 
 import json
+import copy
 import os
 import re
 import shutil
@@ -32,6 +33,9 @@ ENV = {
     "IMPECCABLE_NO_TELEMETRY": "1",
     "IMPECCABLE_NO_UPDATE_CHECK": "1",
     "DO_NOT_TRACK": "1",
+    # Astro 7+ sobe `dev`/`preview` destacados em background quando detecta agente de IA (I-35).
+    "ASTRO_DEV_BACKGROUND": "0",
+    "ASTRO_PREVIEW_BACKGROUND": "0",
 }
 
 CLAUDE_DENY = [
@@ -212,8 +216,6 @@ def memory_session_start(path, script, python, apply):
 
 def strip_added(data, had_policy):
     """Remove de uma cópia o que o append acrescenta, para comparar com o original."""
-    import copy
-
     result = copy.deepcopy(data)
     policy = result.get("shell_environment_policy", {})
     policy.pop("set", None)
@@ -253,18 +255,39 @@ def codex_env(path, apply):
         for key in ENV:
             if key in current and current[key] != ENV[key]:
                 say("WARN", f"shell_environment_policy.set.{key} já existe com valor {current[key]!r}; mantido")
-        if missing:
-            lines = ", ".join(f'{k} = "{ENV[k]}"' for k in missing)
-            say("WARN", f"{path} já tem shell_environment_policy.set; acrescente manualmente: {lines}")
+        if not missing:
+            return NOTHING
+        # Insere as chaves ausentes logo abaixo do cabeçalho da tabela existente (texto puro:
+        # comentários, ordem e o resto do TOML ficam como estão).
+        header = re.search(r"(?m)^[ \t]*\[shell_environment_policy\.set\][ \t]*(?:#.*)?\r?\n", text)
+        lines = "".join(f'{k} = "{ENV[k]}"\n' for k in missing)
+        if header is None:
+            manual = ", ".join(f'{k} = "{ENV[k]}"' for k in missing)
+            say("WARN", f"{path}: shell_environment_policy.set não está no formato [tabela]; acrescente manualmente: {manual}")
             return UNSAFE
-        return NOTHING
+        candidate = text[:header.end()] + lines + text[header.end():]
+        try:
+            parsed = tomllib.loads(candidate)
+        except tomllib.TOMLDecodeError as exc:
+            say("WARN", f"merge em {path} deixaria o TOML inválido ({exc}); arquivo intocado")
+            return UNSAFE
+        expected = copy.deepcopy(data)
+        expected["shell_environment_policy"]["set"] = {**current, **{k: ENV[k] for k in missing}}
+        if parsed != expected:
+            say("WARN", f"merge em {path} não pôde ser verificado; arquivo intocado")
+            return UNSAFE
+        for key in missing:
+            say("CHANGE", f"shell_environment_policy.set.{key}={ENV[key]} em {path}")
+        if apply:
+            write_atomic(path, candidate)
+        return CHANGED
 
     block = "\n# Adicionado pelo install.sh (workflow-ai) --harden\n[shell_environment_policy.set]\n"
     block += "".join(f'{k} = "{v}"\n' for k, v in ENV.items())
     prefix = text if (not text or text.endswith("\n")) else text + "\n"
     candidate = prefix + block
 
-    # Só aplica se o resultado for TOML válido, tiver as 3 vars e não mudar mais nada.
+    # Só aplica se o resultado for TOML válido, tiver todas as vars de ENV e não mudar mais nada.
     try:
         parsed = tomllib.loads(candidate)
     except tomllib.TOMLDecodeError as exc:
