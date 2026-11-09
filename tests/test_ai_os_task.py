@@ -30,6 +30,9 @@ class TaskTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {'AI_OS_STATE_DIR': str(self.state)})
         self.env.start()
         self.addCleanup(self.env.stop)
+        self.paseo_patch = patch.object(task.wd, 'paseo_json', return_value=[])
+        self.paseo_patch.start()
+        self.addCleanup(self.paseo_patch.stop)
 
     def call(self, *args):
         out = io.StringIO()
@@ -58,6 +61,61 @@ class TaskTests(unittest.TestCase):
             self.assertTrue(e['occurred_at'].endswith('Z'))
             self.assertEqual(e['task_id'], tid)
             self.assertIn('source_version', e)
+
+    def test_close_avisa_e_registra_processos_remanescentes(self):
+        tid = self.call('open', 'Fechar tarefa')
+        self.call('link', tid, 'agent-1')
+        home = self.root / 'home'
+        worktree = home / '.paseo' / 'worktrees' / 'g1' / 'repo'
+        (worktree / '.astro').mkdir(parents=True)
+        candidate_pid, residual_pid = 9000001, 9000002
+        (worktree / '.astro' / 'dev.json').write_text(json.dumps({'pid': candidate_pid}))
+        current, parent = os.getpid(), os.getppid()
+
+        paseo_calls = []
+        command_calls = []
+        def paseo(args):
+            paseo_calls.append(args)
+            if args[0] == 'ls':
+                return [{'id': 'agent-1', 'cwd': str(worktree), 'status': 'closed'}]
+            return {'Id': 'agent-1', 'Cwd': str(worktree), 'Status': 'closed'}
+
+        def run(command, **kwargs):
+            command_calls.append(command)
+            if command[0] == 'ps':
+                output = (f'{current} {parent} Mon Nov  9 10:00:00 2026 1000 python3 close\n'
+                          f'{parent} 1 Mon Nov  9 09:00:00 2026 1000 python3 parent\n'
+                          f'{candidate_pid} 1 Fri Oct 23 10:00:00 2026 4 astro dev --host\n'
+                          f'{residual_pid} 42 Fri Oct 23 10:00:00 2026 8 tmux\n')
+            elif '-d' in command:
+                output = (f'p{current}\ncpython3\nfcwd\nn{worktree}\n'
+                          f'p{parent}\ncpython3\nfcwd\nn{worktree}\n'
+                          f'p{candidate_pid}\ncastro\nfcwd\nn{worktree}\n'
+                          f'p{residual_pid}\nctmux\nfcwd\nn{worktree}\n')
+            else:
+                output = ''
+            return subprocess.CompletedProcess(command, 0, stdout=output, stderr='')
+
+        with patch.object(task.Path, 'home', return_value=home), \
+                patch.object(task.wd, 'paseo_json', side_effect=paseo), \
+                patch.object(task.scan_processes.__globals__['subprocess'], 'run', side_effect=run):
+            rows, _, error = task.leftover_processes({'agents': [{'agent_id': 'agent-1'}]}, [])
+            self.assertTrue(rows, repr(error))
+            warning = io.StringIO()
+            with contextlib.redirect_stderr(warning):
+                self.call('close', tid, 'aceito')
+        self.assertIn(['inspect', 'agent-1', '--json'], paseo_calls)
+        self.assertTrue(any(command[0] == 'ps' for command in command_calls))
+        self.assertIn('processo(s) remanescente(s)', warning.getvalue())
+        self.assertIn('astro dev stop', warning.getvalue())
+        self.assertIn(f'pid {residual_pid} (tmux), RESIDUO_AGENTE', warning.getvalue())
+        self.assertEqual(warning.getvalue().count('sugestão (NÃO executada):'), 1)
+        self.assertNotIn(f'pid {current}', warning.getvalue())
+        self.assertNotIn(f'pid {parent}', warning.getvalue())
+        leftover = [event for event in self.events() if event['type'] == 'resource.leftover']
+        self.assertEqual(len(leftover), 1)
+        self.assertEqual(leftover[0]['task_id'], tid)
+        self.assertEqual(leftover[0]['pids'], [candidate_pid, residual_pid])
 
     def test_invalid_transitions_and_reopen(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

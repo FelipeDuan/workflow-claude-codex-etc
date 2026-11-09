@@ -198,3 +198,8 @@ Não instalar o plugin Continuity (ver `AUDITORIA-CONTINUITY.md`). Não ligar o 
 ## Quando algo der errado
 
 Veja `INCIDENTES.md`: cada problema conhecido tem um contorno. Se for novo, registre lá.
+## Processos deixados por agentes
+
+`python3 scripts/hygiene.py scan` registra processos do usuário com diretório atual dentro das worktrees do Paseo e worktrees Git escaneadas. `python3 scripts/hygiene.py plan` marca `ORFAO_CANDIDATO` quando o processo tem `ppid=1`, o agente está fechado/inativo ou não existe, não há conexão TCP estabelecida e a idade passa de 6 horas. Use `python3 scripts/hygiene.py plan --orphan-hours N` para ajustar esse limite.
+
+O plano só sugere comandos. Se o PID do lock Astro (`.astro/dev.json` ou `.astro/preview.json`) corresponder, sugere `astro dev stop` ou `astro preview stop`. Nos demais casos, o comando confere o horário de início antes de enviar `TERM`. Revise o worktree e o processo antes de executar qualquer sugestão. Nenhum processo é encerrado automaticamente.

@@ -13,7 +13,10 @@ from pathlib import Path
 if sys.version_info < (3, 11):
     sys.exit("requer Python >= 3.11; rode com /opt/homebrew/bin/python3")
 
+import paseo_watchdog as wd
 from paseo_watchdog import PolicyError, _clean, is_restricted, load_restricted_roots
+import hygiene as hygiene_scan
+from process_scan import _within, scan_processes
 
 VERSION = "1.0.0"
 REPO = Path(__file__).resolve().parents[1]
@@ -66,6 +69,76 @@ def append_event(history, now, event):
         handle.write(line)
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def leftover_processes(task, roots):
+    """Usa o classificador de hygiene e exclui esta CLI e sua cadeia de pais."""
+    try:
+        listed = wd.paseo_json(["ls", "-a", "--json"])
+        by_id = {str(wd._field(agent, "id", "Id")): agent for agent in listed if isinstance(agent, dict)}
+    except Exception:
+        return [], None, "Paseo indisponível; processos não verificados"
+    worktrees, owners, errors = [], {}, []
+    for linked in task["agents"]:
+        agent_id = str(linked.get("agent_id", ""))
+        try:
+            info = wd.paseo_json(["inspect", agent_id, "--json"])
+            cwd = str(wd._field(info, "Cwd", "cwd", default=wd._field(by_id.get(agent_id, {}), "cwd", "Cwd")))
+        except Exception:
+            errors.append(f"cwd indisponível para {agent_id}")
+            continue
+        if not cwd:
+            errors.append(f"cwd indisponível para {agent_id}")
+            continue
+        status = str(wd._field(info, "Status", "status", default=wd._field(by_id.get(agent_id, {}), "status", "Status")))
+        worktree = {"path": cwd, "raw_path": cwd, "display_path": cwd, "owner_id": agent_id,
+                    "owner_status": status}
+        worktrees.append(worktree)
+        owners.setdefault(os.path.realpath(cwd), []).append(worktree)
+    if not worktrees:
+        return [], None, "; ".join(errors) if errors else None
+    paseo_root = Path.home() / ".paseo" / "worktrees"
+    rows, elapsed, error = scan_processes(worktrees, exclude_pid=os.getpid(), timeout=2)
+    for row in rows:
+        cwd = row.get("cwd", "")
+        matches = [root for root in worktrees if _within(cwd, root["raw_path"])]
+        root = max(matches, key=lambda item: len(item["raw_path"])) if matches else None
+        owner_rows = owners.get(os.path.realpath(root["raw_path"]), []) if root else []
+        owner = owner_rows[0] if len(owner_rows) == 1 else None
+        row["owner_agent"] = owner.get("owner_id") if owner else None
+        row["owner_status"] = owner.get("owner_status") if owner else None
+        row["owner_known"] = len(owner_rows) == 1
+        row["is_main"] = False
+        row["is_paseo_worktree"] = _within(cwd, str(paseo_root))
+        try:
+            row["restricted"] = is_restricted(cwd, roots)
+        except (PolicyError, OSError):
+            row["restricted"] = True
+        row["worktree"] = "restrito/1" if row["restricted"] else row.get("worktree")
+        row["display_worktree"] = row["worktree"]
+        if root is not None:
+            for kind in ("dev", "preview"):
+                try:
+                    lock = json.loads((Path(root["raw_path"]) / ".astro" / f"{kind}.json").read_text(encoding="utf-8"))
+                    row.setdefault("astro_locks", {})[kind] = {"present": True,
+                                                                  "pid_matches": lock.get("pid") == row["pid"]}
+                    if lock.get("pid") == row["pid"]:
+                        row["astro_lock"] = kind
+                except (OSError, ValueError, TypeError):
+                    row.setdefault("astro_locks", {})[kind] = {"present": False, "pid_matches": None}
+        try:
+            started = datetime.strptime(row["start_time"], "%a %b %d %H:%M:%S %Y").astimezone()
+            row["age_hours"] = max(0, (datetime.now(timezone.utc) - started).total_seconds()) / 3600
+        except (KeyError, ValueError, TypeError):
+            row["age_hours"] = None
+        row["pid_reused"] = False
+        row["class"], row["why"] = hygiene_scan.classify_process(row)
+        if error:
+            row["class"], row["why"] = hygiene_scan.DESCONHECIDO, ["scanner incompleto: " + error]
+        row["suggested_commands"] = (hygiene_scan.process_stop_command(row)
+                                     if row["class"] == "ORFAO_CANDIDATO" else [])
+        row.pop("cwd", None)
+    return rows, elapsed, error or ("; ".join(errors) if errors else None)
 
 
 def parser():
@@ -122,6 +195,7 @@ def main(argv=None):
             now = datetime.now(timezone.utc)
             stamp = now.isoformat(timespec="seconds").replace("+00:00", "Z")
             fields = {}
+            leftover_event = None
             if args.command == "open":
                 objective = "restrito" if restricted else _clean(args.objective, 120)
                 if not objective:
@@ -161,6 +235,32 @@ def main(argv=None):
                     fields = {"verdict": args.verdict}
                     if args.nota:
                         fields["note"] = "restrito" if task.get("project") == "restrito" else _clean(args.nota, 120)
+                    policy = Path(getattr(args, "restricted_config", REPO / "config/ai-os-memory.toml")).expanduser()
+                    try:
+                        roots = load_restricted_roots(policy)
+                        leftovers, elapsed, scan_error = leftover_processes(task, roots)
+                    except Exception as exc:
+                        leftovers, elapsed, scan_error = [], None, _clean(str(exc), 160)
+                    if leftovers:
+                        pids = [row["pid"] for row in leftovers]
+                        paths = sorted({row["display_worktree"] for row in leftovers})
+                        print(f"AVISO: {len(leftovers)} processo(s) remanescente(s) na tarefa {task_id}; confira antes de encerrar:", file=sys.stderr)
+                        brief = []
+                        for row in leftovers:
+                            klass = row["class"]
+                            print(f"- pid {row['pid']} ({row['command']}), {klass}, "
+                                  f"RSS {row['rss_bytes']} bytes: {'; '.join(row['why'])}", file=sys.stderr)
+                            for command in row["suggested_commands"]:
+                                print(f"  sugestão (NÃO executada): {command}", file=sys.stderr)
+                            brief.append({"pid": row["pid"], "tipo": row["command"], "classe": klass,
+                                          "memoria_rss_bytes": row["rss_bytes"]})
+                        leftover_event = {"schema_version": 1, "type": "resource.leftover", "occurred_at": stamp,
+                                          "observed_at": stamp, "source": "ai-os-task", "source_version": VERSION,
+                                          "confidence": "observed", "task_id": task_id, "worktrees": paths,
+                                          "count": len(leftovers), "pids": pids, "processes": brief,
+                                          "scan_ms": elapsed, "reason": "processos em worktrees vinculadas ao fechar a tarefa"}
+                    elif scan_error:
+                        print(f"AVISO: não foi possível verificar processos remanescentes da tarefa {task_id}: {scan_error}", file=sys.stderr)
             kind = {"open": "opened", "link": "linked", "close": "closed", "reopen": "reopened"}[args.command]
             event = {"schema_version": 1, "type": f"task.{kind}", "occurred_at": stamp,
                      "observed_at": stamp, "source": "ai-os-task", "source_version": VERSION,
@@ -168,6 +268,8 @@ def main(argv=None):
             if args.command == "open" and fields["category"] is None:
                 event["reason"] = "categoria não informada"
             append_event(history, now, event)
+            if leftover_event is not None:
+                append_event(history, now, leftover_event)
         print(task_id)
         return 0
     except (OSError, ValueError, PolicyError) as exc:

@@ -108,6 +108,9 @@ class WatchdogTests(unittest.TestCase):
         self.now_patch = patch.object(watchdog, '_now', return_value=NOW)
         self.now_patch.start()
         self.addCleanup(self.now_patch.stop)
+        self.process_patch = patch.object(watchdog, 'scan_processes', return_value=([], 0, None))
+        self.process_patch.start()
+        self.addCleanup(self.process_patch.stop)
 
     # ---------------------------------------------------------------- fixtures
 
@@ -679,6 +682,89 @@ class WatchdogTests(unittest.TestCase):
         self.run_watchdog(fake)
         self.assertEqual([r['to'] for r in self.history('agents')],
                          ['parado', 'trabalhando', 'parado', 'desaparecido'])
+
+    def test_leftover_uma_verificacao_e_um_evento_por_transicao(self):
+        agent = self.agent(status='closed')
+        agent['labels'] = {'task': 'T-20261025-01'}
+        fake = FakePaseo([agent])
+        rows = [{'pid': 7654, 'command': 'astro dev', 'rss_bytes': 4096,
+                 'worktree': str(self.agent_cwd), 'cwd': str(self.agent_cwd),
+                 'ppid': 1, 'start_time': 'Fri Oct 23 10:00:00 2026',
+                 'active_connections': 0, 'established_connections': 0, 'listen_ports': [4321],
+                 'is_main': False, 'is_paseo_worktree': True,
+                 'astro_locks': {'dev': {'present': True, 'pid_matches': True}}}]
+        with patch.object(watchdog, 'scan_processes', return_value=(rows, 4.25, None)) as scanner:
+            self.run_watchdog(fake)
+            self.run_watchdog(fake)
+        leftovers = [r for r in self.history('resources') if r['type'] == 'resource.leftover']
+        self.assertEqual(scanner.call_count, 1)
+        self.assertEqual(len(leftovers), 1)
+        self.assertEqual(leftovers[0]['agent_id'], 'a1')
+        self.assertEqual(leftovers[0]['pids'], [7654])
+        self.assertEqual(leftovers[0]['worktree'], str(self.agent_cwd))
+        self.assertEqual(leftovers[0]['task_id'], 'T-20261025-01')
+        self.assertEqual(self.state()['collector_daily']['process_scan_ms_total'], 4.25)
+
+    def test_desaparecimento_consulta_cwd_do_snapshot_uma_vez(self):
+        fake = FakePaseo([self.agent(status='running')])
+        self.run_watchdog(fake)
+        self.assertEqual(self.snapshot()[0]['cwd'], str(self.agent_cwd))
+        fake.agents = []
+        rows = [{'pid': 9876, 'command': 'vite', 'rss_bytes': 8192,
+                 'worktree': str(self.agent_cwd), 'cwd': str(self.agent_cwd), 'ppid': 1,
+                 'start_time': 'Fri Oct 23 10:00:00 2026', 'active_connections': 0,
+                 'established_connections': 0, 'listen_ports': [], 'is_main': False,
+                 'is_paseo_worktree': True, 'astro_locks': {}}]
+        with patch.object(watchdog, 'scan_processes', return_value=(rows, 2.75, None)) as scanner, \
+                patch.object(watchdog, 'notify', wraps=watchdog.notify) as notify:
+            self.run_watchdog(fake)
+            fake.agents = [self.agent(status='closed')]
+            self.run_watchdog(fake)
+            self.run_watchdog(fake)
+        leftovers = [r for r in self.history('resources') if r['type'] == 'resource.leftover']
+        self.assertEqual(scanner.call_count, 2)
+        self.assertEqual(len(leftovers), 2)
+        self.assertEqual([row['agent_id'] for row in leftovers], ['a1', 'a1'])
+        self.assertTrue(all(row['worktree'] == str(self.agent_cwd) for row in leftovers))
+        self.assertTrue(all(row['pids'] == [9876] for row in leftovers))
+        notification_keys = [call.args[2] for call in notify.call_args_list
+                             if len(call.args) > 2 and call.args[2].startswith('leftover:a1:')]
+        self.assertEqual(len(notification_keys), 2)
+        self.assertEqual(notification_keys[0], notification_keys[1])
+
+    def test_idle_nao_dispara_varredura_de_processos(self):
+        with patch.object(watchdog, 'scan_processes', return_value=([], 1, None)) as scanner:
+            self.run_watchdog(FakePaseo([self.agent(status='idle')]))
+        self.assertEqual(scanner.call_count, 0)
+
+    def test_idle_para_closed_dispara_mesmo_com_status_normalizado_igual(self):
+        fake = FakePaseo([self.agent(status='idle')])
+        self.run_watchdog(fake)
+        previous_status = self.state()['agents']['a1']['status']
+        fake.agents = [self.agent(status='closed')]
+        rows = [{'pid': 7656, 'command': 'astro dev', 'rss_bytes': 4096,
+                 'worktree': str(self.agent_cwd), 'cwd': str(self.agent_cwd), 'ppid': 1,
+                 'start_time': 'Fri Oct 23 10:00:00 2026', 'active_connections': 0,
+                 'established_connections': 0, 'listen_ports': [4321], 'is_main': False,
+                 'is_paseo_worktree': True, 'astro_locks': {}}]
+        with patch.object(watchdog, 'scan_processes', return_value=(rows, 1, None)) as scanner:
+            self.run_watchdog(fake)
+        self.assertEqual(previous_status, self.state()['agents']['a1']['status'])
+        self.assertEqual(scanner.call_count, 1)
+        self.assertEqual(len([r for r in self.history('resources') if r['type'] == 'resource.leftover']), 1)
+
+    def test_residuo_agente_e_registrado_sem_comando_de_encerramento(self):
+        fake = FakePaseo([self.agent(status='error')])
+        rows = [{'pid': 7655, 'command': 'node', 'rss_bytes': 4096,
+                 'worktree': str(self.agent_cwd), 'cwd': str(self.agent_cwd), 'ppid': 42,
+                 'start_time': 'Fri Oct 23 10:00:00 2026', 'active_connections': 1,
+                 'established_connections': 1, 'listen_ports': [3000], 'is_main': False,
+                 'is_paseo_worktree': True, 'astro_locks': {}}]
+        with patch.object(watchdog, 'scan_processes', return_value=(rows, 2, None)):
+            self.run_watchdog(fake)
+        record = next(row for row in self.history('resources') if row['type'] == 'resource.leftover')
+        self.assertEqual(record['processes'][0]['classe'], 'RESIDUO_AGENTE')
+        self.assertEqual(record['task_id'], None)
 
     def test_restrito_sem_titulo_caminho_ou_conteudo_no_historico(self):
         self.memory.write_text(f'[restricted]\npaths = ["{self.agent_cwd}"]\nallowed_models = ["opencode/deepseek-v4.1-flash-free"]\n')

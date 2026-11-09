@@ -55,6 +55,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from process_scan import _within, scan_processes  # noqa: E402
 POLICY_PATH = REPO_ROOT / "config" / "paseo-watchdog-policy.toml"
 MEMORY_POLICY_PATH = REPO_ROOT / "config" / "ai-os-memory.toml"
 
@@ -546,7 +548,8 @@ def append_history(state: dict, now: datetime, record: dict, log_path: Path) -> 
     if os.environ.get("AI_OS_HISTORY", "1") == "0":
         return 0
     group = record["type"].split(".")[0]
-    group = {"agent": "agents", "quota": "quota", "collector": "collector"}[group]
+    group = {"agent": "agents", "quota": "quota", "collector": "collector",
+             "resource": "resources"}[group]
     path = _state_dir() / "history" / f"{group}-{now.astimezone():%Y-%m}.jsonl"
     try:
         line = (json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
@@ -658,6 +661,8 @@ def finish_cycle(state: dict, now: datetime, log_path: Path) -> None:
     daily["total_ms"] += elapsed
     daily["max_ms"] = max(daily["max_ms"], elapsed)
     daily["bytes_appended"] += state.pop("_history_bytes", 0)
+    daily["process_scan_ms_total"] = daily.get("process_scan_ms_total", 0) + state.pop("_process_scan_ms", 0)
+    daily["process_scan_ms_max"] = max(daily.get("process_scan_ms_max", 0), state.pop("_process_scan_ms_max", 0))
     state["collector_daily"] = daily
     state["last_cycle_at"] = _iso(now)
     state["last_cycle_finished_at"] = _iso(now + timedelta(milliseconds=elapsed))
@@ -676,6 +681,114 @@ def transition(state: dict, now: datetime, agent_id: str, before: dict, after: d
         + ("; label task não exposto pela CLI" if after.get("task_id") is None else ""),
         confidence="observed",
     ), log_path)
+
+
+def _leftovers_for_transitions(triggers: list[dict], inspects: dict[str, dict], agents_state: dict,
+                               restricted: list[Path], state: dict, now: datetime,
+                               log_path: Path, dry_run: bool) -> None:
+    """Faz uma consulta por ciclo e reutiliza a lista filtrada pelo cwd de cada dono."""
+    import hygiene as hygiene_scan
+
+    roots_by_path: dict[str, dict] = {}
+    for trigger in triggers:
+        cwd = trigger.get("cwd")
+        if not cwd:
+            continue
+        real = os.path.realpath(cwd)
+        root = roots_by_path.setdefault(real, {"path": cwd, "raw_path": cwd, "display_path": cwd,
+                                                 "is_main": False,
+                                                 "is_paseo_worktree": _within(Path(cwd), Path.home() / ".paseo" / "worktrees")})
+        root.setdefault("triggers", []).append(trigger)
+    if not roots_by_path:
+        return
+
+    rows, elapsed, error = scan_processes(list(roots_by_path.values()), include_tcp=True, timeout=2)
+    state["_process_scan_ms"] = state.get("_process_scan_ms", 0) + elapsed
+    state["_process_scan_ms_max"] = max(state.get("_process_scan_ms_max", 0), elapsed)
+    if error:
+        log_event(log_path, now, "process_scan_error", detalhe=error)
+        return
+
+    owners = []
+    for agent_id, inspect in inspects.items():
+        cwd = str(_field(inspect, "Cwd", "cwd", default=""))
+        if not cwd:
+            continue
+        status = str(_field(inspect, "Status", "status", default="")).lower()
+        owners.append({"agent_id": agent_id, "cwd": cwd, "status": status,
+                       "task_id": (agents_state.get(agent_id) or {}).get("task_id")})
+    for trigger in triggers:
+        if trigger.get("status") == "desaparecido" and trigger.get("cwd"):
+            owners.append({"agent_id": trigger["agent_id"], "cwd": trigger["cwd"],
+                           "status": "desaparecido", "task_id": trigger.get("task_id")})
+
+    by_agent: dict[tuple[str, str | None], list[dict]] = {}
+    for row in rows:
+        cwd = row.get("cwd", "")
+        matches = [owner for owner in owners if _within(Path(cwd), Path(owner["cwd"]))]
+        trigger_ids = {str(t["agent_id"]) for root in roots_by_path.values()
+                       if _within(Path(cwd), Path(root["raw_path"])) for t in root.get("triggers", [])}
+        if len(matches) > 1:
+            continue
+        if matches:
+            owner = matches[0]
+            if owner["agent_id"] not in trigger_ids:
+                continue
+            agent_id, status, task_id = owner["agent_id"], owner["status"], owner.get("task_id")
+        else:
+            # cwd de agente desaparecido pode não aparecer na listagem atual.
+            trigger = next((t for t in triggers if t.get("status") == "desaparecido"
+                            and t.get("cwd") and _within(Path(cwd), Path(t["cwd"]))), None)
+            if trigger is None:
+                continue
+            agent_id, status, task_id = trigger["agent_id"], "desaparecido", trigger.get("task_id")
+        root = next((r for r in roots_by_path.values()
+                     if _within(Path(cwd), Path(r["raw_path"]))), None)
+        if root is None:
+            continue
+        try:
+            row["restricted"] = is_restricted(cwd, restricted)
+        except (PolicyError, OSError):
+            row["restricted"] = True
+        row["worktree"] = f"restrito/1" if row["restricted"] else root["display_path"]
+        row.update({"owner_agent": agent_id, "owner_status": status, "owner_known": True,
+                    "is_main": False, "is_paseo_worktree": root["is_paseo_worktree"], "age_hours": None,
+                    "pid_reused": False})
+        try:
+            started = datetime.strptime(row["start_time"], "%a %b %d %H:%M:%S %Y").astimezone()
+            row["age_hours"] = max(0, (now - started).total_seconds()) / 3600
+        except (KeyError, ValueError, TypeError):
+            pass
+        row["astro_locks"] = {}
+        lock_root = Path(root["raw_path"]) / ".astro"
+        for kind in ("dev", "preview"):
+            try:
+                lock = json.loads((lock_root / f"{kind}.json").read_text(encoding="utf-8"))
+                row["astro_locks"][kind] = {"present": True, "pid_matches": lock.get("pid") == row["pid"]}
+            except FileNotFoundError:
+                row["astro_locks"][kind] = {"present": False, "pid_matches": None}
+            except (OSError, ValueError, TypeError):
+                row["astro_locks"][kind] = {"present": True, "pid_matches": None}
+        klass, why = hygiene_scan.classify_process(row)
+        if klass not in {"ORFAO_CANDIDATO", "RESIDUO_AGENTE"}:
+            continue
+        row.update({"class": klass, "why": why})
+        by_agent.setdefault((agent_id, task_id), []).append(row)
+
+    for (agent_id, task_id), agent_rows in by_agent.items():
+        pids = sorted(row["pid"] for row in agent_rows)
+        display = agent_rows[0]["worktree"]
+        brief = [{"pid": row["pid"], "tipo": row["command"], "classe": row["class"],
+                  "memoria_rss_bytes": row["rss_bytes"]} for row in agent_rows]
+        if not dry_run:
+            append_history(state, now, history_record(
+                "resource.leftover", now, agent_id=agent_id, task_id=task_id,
+                worktree=display, count=len(brief), pids=pids, processes=brief,
+                confidence="observed", reason="processos residuais após transição do agente",
+            ), log_path)
+        key = f"leftover:{agent_id}:{','.join(map(str, pids))}"
+        notify(state, now, key, "Paseo · processo remanescente",
+               f"{len(brief)} processo(s) no worktree {display}; confira o plano antes de encerrar", dry_run)
 
 
 # ------------------------------------------------------------------ notificação / log
@@ -845,9 +958,17 @@ def main(argv: list[str] | None = None) -> int:
     snapshot_path = state_dir / "agentes.json"
     log_path = state_dir / "watchdog.log"
     state = load_state(state_path)
+    try:
+        prior_snapshot = parse_json(snapshot_path.read_text(encoding="utf-8"))
+        prior_cwds = {str(row.get("id")): str(row.get("cwd", ""))
+                      for row in prior_snapshot if isinstance(row, dict)} if isinstance(prior_snapshot, list) else {}
+    except (OSError, ValueError, TypeError):
+        prior_cwds = {}
     state["_cycle_started"] = time.perf_counter()
     state["_history_bytes"] = 0
     state["_agents_observed"] = False
+    state["_process_scan_ms"] = 0
+    state["_process_scan_ms_max"] = 0
     last_cycle = _parse_ts(state.get("last_cycle_finished_at")) or _parse_ts(state.get("last_cycle_at"))
     gap = now - last_cycle if last_cycle else timedelta(0)
     gap = gap if gap > timedelta(minutes=5) else timedelta(0)
@@ -1034,9 +1155,12 @@ def main(argv: list[str] | None = None) -> int:
     # -- agentes ------------------------------------------------------------
     snapshot: list[dict] = []
     agents_state: dict[str, dict] = {}
+    leftover_triggers: list[dict] = []
     for agent_id, inspect in inspects.items():
         before = state["agents"].get(agent_id) or {}
         previous = str(before.get("status", ""))
+        previous_source = str(before.get("source_status", "")).lower()
+        raw_status = str(_field(inspect, "Status", "status", default="")).lower()
         raw_updated = _field(inspect, "UpdatedAt", "updatedAt", default="")
         activity = _parse_ts(raw_updated)
         if before.get("source_updated_at") == raw_updated:
@@ -1080,6 +1204,7 @@ def main(argv: list[str] | None = None) -> int:
             "project": "restrito" if restricted_agent else (Path(cwd).name if cwd else None),
             "pending_requests": sorted(str(_field(item, "id", "Id")) for item in agent_pending),
             "source_updated_at": raw_updated,
+            "source_status": raw_status,
             "activity_reference": _iso(activity) if activity else None,
         }
         if agents_state[agent_id]["pending_requests"] != before.get("pending_requests", []):
@@ -1090,6 +1215,9 @@ def main(argv: list[str] | None = None) -> int:
                     del state["notifications"][key]
         if not args.dry_run:
             transition(state, now, agent_id, before, agents_state[agent_id], log_path)
+            if raw_status in {"closed", "error"} and raw_status != previous_source:
+                leftover_triggers.append({"agent_id": agent_id, "cwd": cwd, "status": raw_status,
+                                          "task_id": agents_state[agent_id].get("task_id")})
 
         if status == "aguardando_aprovacao" and age is not None and age >= timedelta(minutes=PENDING_MIN) and not any(_is_question(item) for item in agent_pending) and agent_id not in blocked_models:
             notified = notify(
@@ -1116,7 +1244,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.dry_run:
         for agent_id, before in state["agents"].items():
             if agent_id not in agents_state:
-                transition(state, now, agent_id, before, {**before, "status": "desaparecido"}, log_path)
+                after = {**before, "status": "desaparecido"}
+                transition(state, now, agent_id, before, after, log_path)
+                if before.get("status") != "desaparecido":
+                    leftover_triggers.append({"agent_id": agent_id, "cwd": prior_cwds.get(agent_id, ""),
+                                              "status": "desaparecido", "task_id": before.get("task_id")})
+    if leftover_triggers and not args.dry_run:
+        _leftovers_for_transitions(leftover_triggers, inspects, agents_state, restricted,
+                                   state, now, log_path, args.dry_run)
     state["agents"] = agents_state
 
     # -- agendamentos -------------------------------------------------------

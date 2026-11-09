@@ -48,6 +48,7 @@ if sys.version_info < (3, 11):  # paseo_watchdog usa tomllib; no macOS use /opt/
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paseo_watchdog as wd  # noqa: E402  (reuso de _state_dir, is_restricted, _git...)
+from process_scan import process_start_times, scan_processes  # noqa: E402
 
 SCHEMA_VERSION = 1
 DEFAULT_DAYS = 7
@@ -362,7 +363,74 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
     now = _now()
     items = collect_worktrees(repo, home / ".paseo" / "worktrees")
     agents, paseo_error = collect_agents(now)
+    agent_cwds = {agent["id"]: agent.get("_cwd", "") for agent in agents}
+    paseo_real = os.path.realpath(home / ".paseo" / "worktrees")
+    process_roots = [{"path": item["path"], "raw_path": item["path"], "display_path": item["path"],
+                      "is_main": item["is_main"],
+                      "is_paseo_worktree": os.path.commonpath((os.path.realpath(item["path"]), paseo_real)) == paseo_real}
+                     for item in items]
+    root_restricted = []
+    for item in items:
+        try:
+            root_restricted.append(wd.is_restricted(item["path"], restricted_roots))
+        except Exception:
+            root_restricted.append(True)
+    restricted_count = 0
+    for index, item in enumerate(process_roots):
+        if root_restricted[index]:
+            restricted_count += 1
+            item["display_path"] = f"restrito/{restricted_count}"
+        else:
+            item["display_path"] = item["path"]
     mask_restricted(items, agents, restricted_roots)
+    processes, process_scan_ms, process_error = scan_processes(process_roots)
+    by_root = {os.path.realpath(item["raw_path"]): item for item in process_roots}
+    agent_by_root = {}
+    for agent in agents:
+        cwd = agent_cwds.get(agent["id"])
+        if not cwd:
+            continue
+        matches = [root for root in process_roots if os.path.realpath(cwd).startswith(os.path.realpath(root["raw_path"]) + os.sep)
+                   or os.path.realpath(cwd) == os.path.realpath(root["raw_path"])]
+        if matches:
+            owner = max(matches, key=lambda root: len(root["raw_path"]))
+            agent_by_root.setdefault(os.path.realpath(owner["raw_path"]), []).append(agent)
+    for process in processes:
+        root = by_root.get(os.path.realpath(process["worktree"]))
+        # worktree is masked for restricted entries; resolve ownership from cwd instead.
+        root = next((r for r in process_roots if process["cwd"] == r["raw_path"] or process["cwd"].startswith(r["raw_path"] + os.sep)), root)
+        if root is None:
+            process["is_main"] = False
+            process["is_paseo_worktree"] = False
+            process["owner_agent"] = None
+            process["owner_status"] = None
+            continue
+        process["is_main"] = root["is_main"]
+        process["is_paseo_worktree"] = root["is_paseo_worktree"]
+        owners = agent_by_root.get(os.path.realpath(root["raw_path"]), [])
+        process["worktree"] = root["display_path"]
+        process["restricted"] = root_restricted[process_roots.index(root)]
+        process["owner_agent"] = owners[0]["id"] if len(owners) == 1 else None
+        process["owner_status"] = owners[0]["status"] if len(owners) == 1 else None
+        process["owner_known"] = paseo_error is None and len(owners) <= 1
+        try:
+            start = datetime.strptime(process["start_time"], "%a %b %d %H:%M:%S %Y").astimezone()
+            process["age_hours"] = round(max(0, (now - start).total_seconds()) / 3600, 3)
+        except (ValueError, TypeError):
+            process["age_hours"] = None
+        process["pid_reused"] = False
+        astro = {}
+        for name in ("dev", "preview"):
+            lock = Path(root["raw_path"]) / ".astro" / f"{name}.json"
+            try:
+                value = json.loads(lock.read_text(encoding="utf-8"))
+                astro[name] = {"present": True, "pid_matches": value.get("pid") == process["pid"]}
+            except FileNotFoundError:
+                astro[name] = {"present": False, "pid_matches": None}
+            except (OSError, ValueError, TypeError):
+                astro[name] = {"present": True, "pid_matches": None}
+        process["astro_locks"] = astro
+        process.pop("cwd", None)
     sizes = dir_sizes(home, state_dir)
     sizes["worktrees_escaneadas"] = sum(i["size_bytes"] or 0 for i in items if not i["is_main"])
     usage = shutil.disk_usage(home)
@@ -373,6 +441,7 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
         "paseo_error": paseo_error,
         "worktrees": items,
         "agents": agents,
+        "processes": {"items": processes, "scan_ms": process_scan_ms, "error": process_error},
         "launchd": launchctl_list(),
         "sizes_bytes": sizes,
         "disk": {"total_bytes": usage.total, "free_bytes": usage.free},
@@ -494,7 +563,63 @@ def classify_worktree(item: dict, linked: list[tuple[str, str]], paseo_ok: bool,
     return CANDIDATO, ["limpa, sem commit exclusivo, parada há %.1f d" % item["age_days"]]
 
 
-def classify(scan: dict, days: float = DEFAULT_DAYS) -> list[dict]:
+def classify_process(process: dict, orphan_hours: float = 6) -> tuple[str, list[str]]:
+    """Classe individual compartilhada pelo plano, close da tarefa e vigia."""
+    if process.get("restricted") is True:
+        return PRESERVAR, ["worktree restrita; revisão humana necessária"]
+    if process.get("owner_known") is not True:
+        return DESCONHECIDO, ["proprietário do worktree ausente ou ambíguo"]
+    if process.get("pid_reused") is True:
+        return DESCONHECIDO, ["o PID não corresponde mais ao horário de início do scan"]
+    ppid, age = process.get("ppid"), process.get("age_hours")
+    status = process.get("owner_status")
+    inactive = status in (None, "closed", "error", "desaparecido")
+    if (type(process.get("pid")) is not int or not process.get("start_time")
+            or not isinstance(process.get("worktree"), str)
+            or ppid is None or not isinstance(age, (int, float))):
+        return DESCONHECIDO, ["faltam dados para provar a situação do processo"]
+    if inactive and ppid != 1 and age > orphan_hours:
+        return "RESIDUO_AGENTE", ["agente encerrado/ausente; processo continua subordinado ao pai"]
+    if process.get("is_main") is True or process.get("is_paseo_worktree") is not True:
+        return DESCONHECIDO, ["processo fora de uma worktree do Paseo"]
+    if status not in (None, "closed", "idle", "error", "desaparecido"):
+        return PRESERVAR, ["agente ativo ou em estado não terminal"]
+    active = process.get("active_connections")
+    if active is None:
+        return DESCONHECIDO, ["estado das conexões TCP não pôde ser confirmado"]
+    if active > 0:
+        return PRESERVAR, ["processo tem conexões TCP ativas"]
+    command = process.get("command")
+    ports = process.get("listen_ports")
+    recognized = command in {"astro dev", "astro preview", "vite", "vite dev", "next dev", "next start"}
+    recognized = recognized or (command == "node" and isinstance(ports, list) and bool(ports))
+    if not recognized:
+        return DESCONHECIDO, ["comando não identificado como servidor de desenvolvimento"]
+    if ppid != 1 or not inactive:
+        return PRESERVAR, ["processo ainda tem proprietário ou processo pai"]
+    if age <= orphan_hours:
+        return PRESERVAR, [f"processo tem {age:.1f} h (<= {orphan_hours:g} h)"]
+    return "ORFAO_CANDIDATO", ["ppid 1, agente inativo/ausente, sem conexões e idade acima do limite"]
+
+
+def process_stop_command(process: dict) -> list[str]:
+    """Sugere uma parada manual; Astro só pelo lock existente que confirma o PID."""
+    pid = process["pid"]
+    worktree = process["worktree"]
+    command = process.get("command")
+    locks = process.get("astro_locks", {})
+    if command == "astro dev" and locks.get("dev", {}).get("present") is True \
+            and locks.get("dev", {}).get("pid_matches") is True:
+        return [f"cd {shlex.quote(worktree)} && astro dev stop"]
+    if command == "astro preview" and locks.get("preview", {}).get("present") is True \
+            and locks.get("preview", {}).get("pid_matches") is True:
+        return [f"cd {shlex.quote(worktree)} && astro preview stop"]
+    start = process["start_time"]
+    return [f"[ \"$(LC_ALL=C ps -o lstart= -p {pid} | sed 's/^ *//;s/ *$//')\" = "
+            f"{shlex.quote(start)} ] && kill -TERM {pid}"]
+
+
+def classify(scan: dict, days: float = DEFAULT_DAYS, orphan_hours: float = 6) -> list[dict]:
     """Itens malformados viram DESCONHECIDO, sem comando sugerido."""
     agents = scan["agents"]
     agent_bad = [schema_problem(a, AGENT_SCHEMA) for a in agents]
@@ -535,6 +660,43 @@ def classify(scan: dict, days: float = DEFAULT_DAYS) -> list[dict]:
         results.append({"kind": "agente", "name": agent["id"], "class": klass, "why": why,
                         "commands": [f"paseo delete {shlex.quote(agent['id'])}"] if klass == CANDIDATO else [],
                         "bytes": 0, "provider": agent["provider"], "status": agent["status"]})
+    process_data = scan.get("processes")
+    if isinstance(process_data, dict):
+        items = process_data.get("items", [])
+        items = items if isinstance(items, list) else []
+        residuals: dict[str | None, list[dict]] = {}
+        for n, process in enumerate(items, 1):
+            if not isinstance(process, dict):
+                results.append({"kind": "process", "name": f"<processo #{n} inválido>", "class": DESCONHECIDO,
+                                "why": ["registro inconsistente no scan"], "commands": [], "bytes": 0,
+                                "rss_bytes": None, "process": {"worktree": None, "command": "desconhecido", "pid": None}})
+                continue
+            pid = process.get("pid")
+            klass, reasons = classify_process(process, orphan_hours)
+            if process_data.get("error"):
+                klass, reasons = DESCONHECIDO, ["scanner incompleto: " + str(process_data["error"])]
+            if klass == "RESIDUO_AGENTE":
+                key = process.get("owner_agent")
+                residuals.setdefault(key, []).append(process)
+                continue
+            command = process_stop_command(process) if klass == "ORFAO_CANDIDATO" else []
+            results.append({"kind": "process", "name": f"pid {pid or n} ({process.get('command', 'desconhecido')})",
+                            "class": klass, "why": reasons, "commands": command, "bytes": 0,
+                            "rss_bytes": process.get("rss_bytes"), "process": process})
+        for owner, rows in residuals.items():
+            pids = [row.get("pid") for row in rows]
+            rss = sum(row.get("rss_bytes") or 0 for row in rows)
+            worktrees = list(dict.fromkeys(row.get("worktree") for row in rows if row.get("worktree")))
+            suggestion = f"paseo delete {shlex.quote(owner)} após conferir" if owner else "inspecionar o processo pai antes de decidir"
+            results.append({"kind": "process", "name": f"agente {owner or 'ausente'}",
+                            "class": "RESIDUO_AGENTE", "why": [f"{len(rows)} processo(s); RSS somado {gb(rss)}; "
+                            "o pai pode ser compartilhado"], "commands": [suggestion], "bytes": 0,
+                            "rss_bytes": rss, "process": {"worktrees": worktrees, "command": "resíduo", "pids": pids,
+                                                               "owner_agent": owner}})
+        if process_data.get("error"):
+            results.append({"kind": "process", "name": "scanner de processos", "class": DESCONHECIDO,
+                            "why": [process_data["error"]], "commands": [], "bytes": 0, "rss_bytes": None,
+                            "process": {"worktree": None, "command": "desconhecido", "pid": None}})
     return results
 
 
@@ -542,10 +704,11 @@ def gb(value: int | None) -> str:
     return "n/d" if value is None else f"{value / (1 << 30):.2f} GB"
 
 
-def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
+def render_plan(scan: dict, days: float = DEFAULT_DAYS, orphan_hours: float = 6) -> str:
     validate_scan(scan)
-    results = classify(scan, days)
-    count = {k: {PRESERVAR: 0, CANDIDATO: 0, DESCONHECIDO: 0} for k in ("worktree", "agente")}
+    results = classify(scan, days, orphan_hours)
+    count = {k: {PRESERVAR: 0, CANDIDATO: 0, DESCONHECIDO: 0} for k in ("worktree", "agente", "process")}
+    count["process"].update({"ORFAO_CANDIDATO": 0, "RESIDUO_AGENTE": 0})
     for r in results:
         count[r["kind"]][r["class"]] += 1
     est = sum(r["bytes"] for r in results)
@@ -554,16 +717,21 @@ def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
            "> Nada foi apagado, movido ou podado. Os comandos abaixo são **sugestões**: confira cada um antes de rodar.", "",
            "## Resumo", "",
            f"Limite de idade: {days:g} dias. Paseo disponível: {'sim' if scan['paseo_ok'] else 'NÃO (worktrees ficam DESCONHECIDO)'}.", "",
-           "| Recurso | PRESERVAR | CANDIDATO | DESCONHECIDO |", "|---|---|---|---|"]
+           "| Recurso | PRESERVAR | CANDIDATO | RESIDUO_AGENTE | DESCONHECIDO |", "|---|---|---|---|---|"]
     for kind in ("worktree", "agente"):
         c = count[kind]
-        out.append(f"| {kind} | {c[PRESERVAR]} | {c[CANDIDATO]} | {c[DESCONHECIDO]} |")
+        out.append(f"| {kind} | {c[PRESERVAR]} | {c[CANDIDATO]} | 0 | {c[DESCONHECIDO]} |")
+    out.append(f"| processo | {count['process'][PRESERVAR]} | {count['process']['ORFAO_CANDIDATO']} | "
+               f"{count['process']['RESIDUO_AGENTE']} | {count['process'][DESCONHECIDO]} |")
     out += ["", f"Espaço recuperável **ESTIMADO** (soma das worktrees CANDIDATO, bytes em disco): {gb(est)} ({est} bytes).", "",
             "## Máquina", "",
             f"- Disco livre: {gb(disk['free_bytes'])} de {gb(disk['total_bytes'])}.",
             f"- Pressão de memória: {mem['pressure_level'] or 'n/d'}; memória livre: "
             f"{'n/d' if mem['free_percentage'] is None else str(mem['free_percentage']) + '%'}.",
             f"- Swap: {gb(mem['swap_used_bytes'])} usados de {gb(mem['swap_total_bytes'])}.",
+            f"- Varredura de processos: {scan.get('processes', {}).get('scan_ms', 'n/d')} ms "
+            f"(revalidação do scan salvo: {scan.get('processes', {}).get('revalidate_ms', 0)} ms); "
+            f"erro: {scan.get('processes', {}).get('error') or 'nenhum'}.",
             "", "Tamanho por classe:", "",
             f"- worktrees escaneadas (fora o checkout principal): {gb(sizes['worktrees_escaneadas'])}",
             f"- ~/.paseo fora de worktrees: {gb(sizes['paseo_fora_worktrees'])}",
@@ -571,7 +739,7 @@ def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
             f"- estado do AI OS (inclui history): {gb(sizes['ai_os_state'])}", f"- ~/.gemini: {gb(sizes['gemini'])}",
             f"- ~/Library/Caches (só informativo, fora do escopo do AI OS): {gb(sizes['library_caches_informativo'])}",
             "", "Jobs launchd com.felipe: " + (", ".join(j["label"] for j in scan["launchd"]) or "nenhum"), ""]
-    for klass in (CANDIDATO, DESCONHECIDO, PRESERVAR):
+    for klass in ("ORFAO_CANDIDATO", "RESIDUO_AGENTE", CANDIDATO, DESCONHECIDO, PRESERVAR):
         rows = [r for r in results if r["class"] == klass]
         out += [f"## {klass} ({len(rows)})", ""]
         for r in rows:
@@ -579,7 +747,13 @@ def render_plan(scan: dict, days: float = DEFAULT_DAYS) -> str:
             size = ""
             if r["kind"] == "worktree":
                 size = f" — {gb(r['size'])}"
-            out.append(f"- {r['kind']} `{r['name']}`{extra}{size}: {'; '.join(r['why'])}")
+            process_detail = ""
+            if r["kind"] == "process":
+                p = r["process"]
+                process_detail = (f"; RSS {gb(p.get('rss_bytes'))}; portas LISTEN {p.get('listen_ports', [])}; "
+                                  f"conexões ESTABLISHED {p.get('established_connections', 'n/d')}; "
+                                  f"agente {p.get('owner_agent') or 'ausente/ambíguo'} ({p.get('owner_status') or 'n/d'})")
+            out.append(f"- {r['kind']} `{r['name']}`{extra}{size}: {'; '.join(r['why'])}{process_detail}")
             for cmd in r["commands"]:
                 out.append(f"  - sugestão (NÃO executada): `{cmd}`")
         out.append("")
@@ -614,6 +788,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan = sub.add_parser("plan", help="plano em Markdown")
     p_plan.add_argument("--scan", help="scan JSON existente (padrão: roda um scan novo, em memória)")
     p_plan.add_argument("--days", type=float, default=DEFAULT_DAYS, help="idade mínima em dias (padrão 7)")
+    p_plan.add_argument("--orphan-hours", type=float, default=6, help="idade mínima de processo órfão em horas (padrão 6)")
     p_plan.add_argument("--out", help="arquivo de saída (padrão: stdout)")
     p_plan.add_argument("--repo", default=None)
     args = parser.parse_args(argv)
@@ -638,7 +813,16 @@ def main(argv: list[str] | None = None) -> int:
                 _write_private(target, text)
                 print(f"scan salvo em {target}", file=sys.stderr)
         else:
-            text = render_plan(scan, args.days) + "\n"
+            if isinstance(scan.get("processes"), dict):
+                records = scan["processes"].get("items", [])
+                pids = {row.get("pid") for row in records if isinstance(row, dict) and isinstance(row.get("pid"), int)}
+                current, revalidate_ms = process_start_times(pids) if pids else ({}, 0)
+                scan["processes"]["revalidate_ms"] = revalidate_ms
+                for row in records:
+                    if not isinstance(row, dict) or not isinstance(row.get("pid"), int):
+                        continue
+                    row["pid_reused"] = current is None or current.get(row["pid"]) != row.get("start_time")
+            text = render_plan(scan, args.days, args.orphan_hours) + "\n"
             if args.out:
                 _write_private(Path(args.out), text)
                 print(f"plano salvo em {args.out}", file=sys.stderr)

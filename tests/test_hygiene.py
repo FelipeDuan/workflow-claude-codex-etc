@@ -1,6 +1,9 @@
 import importlib.util
+import contextlib
+import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -64,10 +67,11 @@ class HygieneCase(unittest.TestCase):
         git(self.repo, 'worktree', 'add', '-q', '-b', branch or name.replace(' ', '-'), str(path))
         return path
 
-    def run_plan(self, agents=(), days=7, paseo_ok=True, roots=()):
+    def run_plan(self, agents=(), days=7, paseo_ok=True, roots=(), process_rows=()):
         agents_list = [dict(a) for a in agents]
         error = None if paseo_ok else 'paseo fora'
         with patch.object(hygiene, 'collect_agents', return_value=(agents_list, error)), \
+                patch.object(hygiene, 'scan_processes', return_value=(list(process_rows), 1.0, None)), \
                 patch.object(hygiene, 'launchctl_list', return_value=[{'label': 'com.felipe.x', 'pid': None, 'last_exit': '0'}]), \
                 patch.object(hygiene, 'dir_sizes', return_value={k: 1 for k in (
                     'paseo_fora_worktrees', 'paseo_worktrees_du', 'claude', 'codex', 'ai_os_state', 'gemini',
@@ -269,6 +273,31 @@ class Privacy(HygieneCase):
 
 
 @needs_311
+class ProcessOwnership(HygieneCase):
+    def test_checkout_principal_sem_agente_nao_e_orfao(self):
+        process = {'pid': 2468, 'ppid': 1, 'start_time': 'Mon Nov  9 10:00:00 2026',
+                   'command': 'astro dev', 'cwd': str(self.repo), 'worktree': str(self.repo), 'rss_bytes': 1024,
+                   'listen_ports': [4321], 'established_connections': 0, 'active_connections': 0}
+        scan, _ = self.run_plan(process_rows=[process])
+        row = scan['processes']['items'][0]
+        self.assertTrue(row['is_main'])
+        result = next(item for item in hygiene.classify(scan) if item['kind'] == 'process')
+        self.assertEqual(result['class'], hygiene.DESCONHECIDO)
+
+    def test_dono_ambiguo_em_mesma_worktree_nao_e_orfao(self):
+        path = self.wt('duplo')
+        process = {'pid': 2468, 'ppid': 1, 'start_time': 'Mon Nov  9 10:00:00 2026',
+                   'command': 'astro dev', 'cwd': str(path), 'worktree': str(path), 'rss_bytes': 1024,
+                   'listen_ports': [], 'established_connections': 0, 'active_connections': 0}
+        owners = [agent('a1', status='closed', cwd=str(path)), agent('a2', status='closed', cwd=str(path))]
+        scan, _ = self.run_plan(agents=owners, process_rows=[process])
+        row = scan['processes']['items'][0]
+        self.assertFalse(row['owner_known'])
+        result = next(item for item in hygiene.classify(scan) if item['kind'] == 'process')
+        self.assertEqual(result['class'], hygiene.DESCONHECIDO)
+
+
+@needs_311
 class CliAndParsers(unittest.TestCase):
     def test_no_apply_flag(self):
         with self.assertRaises(SystemExit):
@@ -441,6 +470,236 @@ class ScanValidation(unittest.TestCase):
                 bad.write_text(content)
                 self.assertEqual(hygiene.main(['plan', '--scan', str(bad)]), 2, content)
             self.assertEqual(hygiene.main(['plan', '--scan', str(Path(tmp) / 'nao-existe.json')]), 2)
+
+    def test_plan_scan_com_lstart_diferente_fica_desconhecido(self):
+        scan = self.good()
+        scan["processes"] = {"scan_ms": 2.0, "error": None, "items": [{
+            "pid": 2468, "ppid": 1, "start_time": "Mon Nov  9 10:00:00 2026", "command": "astro dev",
+            "worktree": "/x/wt", "rss_bytes": 1024, "owner_agent": None, "owner_status": None,
+            "owner_known": True, "established_connections": 0, "listen_ports": [], "age_hours": 48,
+            "restricted": False, "pid_reused": False,
+            "astro_locks": {"dev": {"present": False, "pid_matches": None},
+                            "preview": {"present": False, "pid_matches": None}},
+        }]}
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "scan.json"
+            source.write_text(json.dumps(scan))
+            output = io.StringIO()
+            with patch.object(hygiene, "process_start_times", return_value=({2468: "Tue Nov 10 10:00:00 2026"}, 1.2)) as check, \
+                    contextlib.redirect_stdout(output):
+                self.assertEqual(hygiene.main(["plan", "--scan", str(source)]), 0)
+            self.assertEqual(check.call_count, 1)
+            self.assertIn("DESCONHECIDO", output.getvalue())
+            self.assertIn("não corresponde mais ao horário de início", output.getvalue())
+
+
+@needs_311
+class OrphanProcessPlan(unittest.TestCase):
+    def row(self, **changes):
+        return {'pid': 2468, 'ppid': 1, 'start_time': 'Mon Nov  9 10:00:00 2026',
+                'command': 'astro dev', 'worktree': '/tmp/wt', 'rss_bytes': 1024,
+                'owner_agent': 'a1', 'owner_status': 'closed', 'owner_known': True,
+                'established_connections': 0, 'active_connections': 0, 'listen_ports': [4321], 'age_hours': 48,
+                'is_main': False, 'is_paseo_worktree': True,
+                'restricted': False, 'pid_reused': False, 'astro_locks': {'dev': {'present': True, 'pid_matches': True},
+                'preview': {'present': False, 'pid_matches': None}}, **changes}
+
+    def scan(self, row):
+        return {'agents': [], 'worktrees': [], 'paseo_ok': True,
+                'processes': {'items': [row], 'scan_ms': 2.5, 'error': None}}
+
+    def test_classico_vira_orfao_com_comando_astro(self):
+        result = hygiene.classify(self.scan(self.row()))[0]
+        self.assertEqual(result['class'], 'ORFAO_CANDIDATO')
+        self.assertIn('astro dev stop', result['commands'][0])
+        self.assertNotIn('kill -9', result['commands'][0])
+
+    def test_conexao_agente_ativo_ppid_e_pid_reutilizado_nao_sao_orfaos(self):
+        for changes, klass in (({'established_connections': 1, 'active_connections': 1}, hygiene.PRESERVAR),
+                               ({'owner_status': 'running'}, hygiene.PRESERVAR),
+                               ({'ppid': 42}, 'RESIDUO_AGENTE'),
+                               ({'active_connections': None}, hygiene.DESCONHECIDO),
+                               ({'pid_reused': True}, hygiene.DESCONHECIDO)):
+            with self.subTest(changes=changes):
+                self.assertEqual(hygiene.classify(self.scan(self.row(**changes)))[0]['class'], klass)
+
+    def test_lock_astro_com_pid_diferente_usa_guarda_de_inicio(self):
+        row = self.row(astro_locks={'dev': {'present': True, 'pid_matches': False},
+                                    'preview': {'present': False, 'pid_matches': None}})
+        result = hygiene.classify(self.scan(row))[0]
+        self.assertEqual(result['class'], 'ORFAO_CANDIDATO')
+        self.assertIn('ps -o lstart=', result['commands'][0])
+        self.assertIn('LC_ALL=C ps -o lstart= -p 2468', result['commands'][0])
+        self.assertIn('kill -TERM 2468', result['commands'][0])
+
+    def test_lock_astro_ausente_nao_usa_astro_stop(self):
+        row = self.row(astro_locks={'dev': {'present': False, 'pid_matches': True},
+                                    'preview': {'present': False, 'pid_matches': None}})
+        result = hygiene.classify(self.scan(row))[0]
+        self.assertNotIn('astro dev stop', result['commands'][0])
+        self.assertIn('kill -TERM 2468', result['commands'][0])
+
+    def test_restrito_fica_mascarado_e_preservado(self):
+        row = self.row(restricted=True, worktree='restrito/1')
+        result = hygiene.classify(self.scan(row))[0]
+        self.assertEqual(result['class'], hygiene.PRESERVAR)
+        self.assertEqual(result['process']['worktree'], 'restrito/1')
+
+    def test_scanner_usa_ps_e_lsof_cwd_global_sem_lsof_por_pid(self):
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import process_scan
+        calls = []
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            if command[0] == 'ps':
+                stdout = '619 1 Mon Nov  9 10:00:00 2026 1234 astro dev --host\n'
+            elif '-d' in command:
+                stdout = 'p619\ncnode\nfcwd\nn/tmp/wt\n'
+            else:
+                stdout = (ROOT / 'tests/fixtures/lsof_tcp_FpnfT_real.txt').read_text()
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr='')
+        with patch.object(process_scan.subprocess, 'run', side_effect=fake_run):
+            rows, elapsed, error = process_scan.scan_processes([{'path': '/tmp/wt'}])
+        self.assertEqual(error, None)
+        self.assertEqual(rows[0]['command'], 'astro dev')
+        self.assertEqual(rows[0]['listen_ports'], [5000, 7000])
+        self.assertEqual(rows[0]['established_connections'], 0)
+        self.assertEqual(rows[0]['active_connections'], 0)
+        self.assertGreaterEqual(elapsed, 0)
+        self.assertEqual(sum('-d' in command and 'cwd' in command for command in calls), 1)
+        self.assertTrue(any('-FpnfT' in command for command in calls))
+
+    def test_fixture_lsof_legado_sem_tst_nao_prova_zero(self):
+        import process_scan
+        output = (ROOT / 'tests/fixtures/lsof_tcp_Fpn_real.txt').read_text()
+        listen, established, active = process_scan._parse_tcp(output)
+        self.assertEqual(listen, {})
+        self.assertIsNone(active[619])
+        self.assertIsNone(active[658])
+        self.assertIsNone(active[664])
+        self.assertEqual(established, {})
+
+    def test_estados_tcp_nao_established_tambem_contam_como_ativos(self):
+        import process_scan
+        output = ('p2468\nf3\nn127.0.0.1:4000->127.0.0.1:80\nTST=CLOSE_WAIT\n'
+                  'f4\nn127.0.0.1:4001->127.0.0.1:80\nTST=SYN_SENT\n')
+        _, established, active = process_scan._parse_tcp(output)
+        self.assertEqual(established, {})
+        self.assertEqual(active[2468], 2)
+
+    def test_fixtures_lstart_e_comando_usam_locale_c(self):
+        c = (ROOT / 'tests/fixtures/ps_lstart_C.txt').read_text().strip()
+        pt = (ROOT / 'tests/fixtures/ps_lstart_ptBR.txt').read_text().strip()
+        row = self.row(start_time=c, astro_locks={})
+        command = hygiene.process_stop_command(row)[0]
+        self.assertIn('LC_ALL=C ps -o lstart= -p 2468', command)
+        self.assertIn(shlex.quote(c), command)
+        self.assertNotEqual(c, pt)
+        self.assertNotIn(pt, command)
+
+    def test_so_roots_de_worktree_paseo_e_comando_de_servidor_podem_ser_orfao(self):
+        cases = (({'is_main': True}, hygiene.DESCONHECIDO),
+                 ({'is_paseo_worktree': False}, hygiene.DESCONHECIDO),
+                 ({'command': 'tmux'}, hygiene.DESCONHECIDO),
+                 ({'command': 'nohup', 'is_main': True}, hygiene.DESCONHECIDO),
+                 ({'command': 'vite build'}, hygiene.DESCONHECIDO),
+                 ({'command': 'node', 'listen_ports': []}, hygiene.DESCONHECIDO),
+                 ({'command': 'node', 'listen_ports': [3000]}, 'ORFAO_CANDIDATO'))
+        for changes, klass in cases:
+            with self.subTest(changes=changes):
+                self.assertEqual(hygiene.classify(self.scan(self.row(**changes)))[0]['class'], klass)
+
+    def test_dono_ambiguo_nao_vira_orfao(self):
+        process = self.row(owner_known=False)
+        self.assertEqual(hygiene.classify(self.scan(process))[0]['class'], hygiene.DESCONHECIDO)
+
+    def test_residuo_agente_agrupa_rss_sem_sugerir_kill(self):
+        first = self.row(ppid=77, command='node', owner_agent='a1', active_connections=2)
+        second = self.row(pid=2469, ppid=77, command='tmux', owner_agent='a1', rss_bytes=2048,
+                          active_connections=1, astro_locks={})
+        result = hygiene.classify({'agents': [], 'worktrees': [], 'paseo_ok': True,
+                                   'processes': {'items': [first, second], 'scan_ms': 1, 'error': None}})
+        residue = next(row for row in result if row['class'] == 'RESIDUO_AGENTE')
+        self.assertEqual(residue['process']['pids'], [2468, 2469])
+        self.assertEqual(residue['rss_bytes'], 3072)
+        self.assertEqual(residue['process']['worktrees'], ['/tmp/wt'])
+        self.assertIn('paseo delete a1 após conferir', residue['commands'][0])
+        self.assertFalse(any('kill' in command for command in residue['commands']))
+
+    def test_residuo_do_mesmo_agente_soma_rss_em_worktrees_diferentes(self):
+        first = self.row(ppid=77, owner_agent='a1', worktree='/tmp/wt-a')
+        second = self.row(pid=2470, ppid=77, owner_agent='a1', worktree='/tmp/wt-b', rss_bytes=2048)
+        result = hygiene.classify({'agents': [], 'worktrees': [], 'paseo_ok': True,
+                                   'processes': {'items': [first, second], 'scan_ms': 1, 'error': None}})
+        residues = [row for row in result if row['class'] == 'RESIDUO_AGENTE']
+        self.assertEqual(len(residues), 1)
+        self.assertEqual(residues[0]['rss_bytes'], 3072)
+        self.assertEqual(residues[0]['process']['worktrees'], ['/tmp/wt-a', '/tmp/wt-b'])
+
+    def test_resumo_vite_build_nao_e_servidor_de_desenvolvimento(self):
+        import process_scan
+        self.assertEqual(process_scan._summary('/usr/local/bin/vite build'), 'vite build')
+        self.assertEqual(process_scan._summary('/usr/local/bin/vite dev --host'), 'vite dev')
+
+    def test_lsof_tcp_sem_matches_significa_zero_conexoes(self):
+        import process_scan
+        def fake_run(command, **kwargs):
+            if command[0] == 'ps':
+                stdout = '2468 1 Mon Nov  9 10:00:00 2026 1234 node astro dev\n'
+                return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr='')
+            if '-d' in command:
+                return subprocess.CompletedProcess(command, 0, stdout='p2468\ncnode\nfcwd\nn/tmp/wt\n', stderr='')
+            return subprocess.CompletedProcess(command, 1, stdout='', stderr='')
+        with patch.object(process_scan.subprocess, 'run', side_effect=fake_run):
+            rows, _, error = process_scan.scan_processes([{'path': '/tmp/wt'}])
+        self.assertIsNone(error)
+        self.assertEqual(rows[0]['established_connections'], 0)
+
+    def test_lsof_tcp_com_erro_real_fica_desconhecido(self):
+        import process_scan
+        def fake_run(command, **kwargs):
+            if command[0] == 'ps':
+                return subprocess.CompletedProcess(command, 0,
+                    stdout='2468 1 Mon Nov  9 10:00:00 2026 1234 node astro dev\n', stderr='')
+            if '-d' in command:
+                return subprocess.CompletedProcess(command, 0, stdout='p2468\ncnode\nfcwd\nn/tmp/wt\n', stderr='')
+            return subprocess.CompletedProcess(command, 1, stdout='', stderr='permission denied')
+        with patch.object(process_scan.subprocess, 'run', side_effect=fake_run):
+            rows, _, error = process_scan.scan_processes([{'path': '/tmp/wt'}])
+        self.assertIsNotNone(error)
+        scan = {'agents': [], 'worktrees': [], 'paseo_ok': True,
+                'processes': {'items': [dict(rows[0], owner_known=True, owner_status='closed', age_hours=48,
+                                             restricted=False, pid_reused=False)], 'scan_ms': 1, 'error': error}}
+        self.assertEqual(hygiene.classify(scan)[0]['class'], hygiene.DESCONHECIDO)
+
+    def test_scanner_nao_confunde_prefixo_parecido_nem_segue_symlink_root(self):
+        import process_scan
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / 'worktree'
+            sibling = base / 'worktree-sibling'
+            external = base / 'external'
+            for path in (root, sibling, external):
+                path.mkdir()
+            link = base / 'linked-worktree'
+            link.symlink_to(external)
+
+            def fake_run(command, **kwargs):
+                if command[0] == 'ps':
+                    return subprocess.CompletedProcess(command, 0,
+                        stdout='619 1 Mon Nov  9 10:00:00 2026 1234 astro dev\n', stderr='')
+                if '-d' in command:
+                    return subprocess.CompletedProcess(command, 0,
+                        stdout=f'p619\ncnode\nfcwd\nn{sibling}\n', stderr='')
+                return subprocess.CompletedProcess(command, 0,
+                    stdout=(ROOT / 'tests/fixtures/lsof_tcp_FpnfT_real.txt').read_text(), stderr='')
+
+            with patch.object(process_scan.subprocess, 'run', side_effect=fake_run):
+                rows, _, error = process_scan.scan_processes([{'path': str(root)}])
+                self.assertEqual(rows, [])
+                rows, _, error = process_scan.scan_processes([{'path': str(link)}])
+                self.assertEqual(rows, [])
+            self.assertIsNone(error)
 
 
 class OldPython(unittest.TestCase):
