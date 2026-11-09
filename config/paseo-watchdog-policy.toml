@@ -16,6 +16,9 @@
 
 version = 1
 
+# Lembrete de uma condição contínua, em minutos; ausente ou 0 não repete aviso.
+# reminder_min = 10
+
 # O cwd do agente precisa estar dentro de uma destas raízes para haver allow.
 # Worktrees do Paseo + repositórios em que agentes autônomos são esperados.
 allowed_roots = [

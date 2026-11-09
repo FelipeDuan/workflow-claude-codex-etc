@@ -24,8 +24,8 @@ Autoaprovação: primeira regra que casar em config/paseo-watchdog-policy.toml.
 permitido quando o projeto é restrito (config/ai-os-memory.toml). O resto
 vira `notify`. Nada é autoaprovado sem regra.
 
-Notificação: `osascript -e 'display notification ...'`, no máximo uma vez a
-cada DEDUP_MIN (10 min) por chave. Estado: ~/.local/state/ai-os/
+Notificação: `osascript -e 'display notification ...'`, na entrada da condição
+que pede ação. Lembretes só com reminder_min na política. Estado: ~/.local/state/ai-os/
 (watchdog-state.json, agentes.json, watchdog.log).
 
 Uso:
@@ -42,6 +42,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import time
 import os
 import re
 import shlex
@@ -64,6 +66,7 @@ CODEX_SENSOR_TIMEOUT = 45
 DESC_LIMIT = 200
 STATE_KEEP_DAYS = 7
 QUOTA_INTERVAL_MIN = 5
+WATCHDOG_VERSION = "1.1.0"
 
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _SECRET = re.compile(
@@ -105,6 +108,7 @@ class Rule:
 class Policy:
     rules: list[Rule]
     allowed_roots: list[Path]
+    reminder_min: float = 0
 
 
 # ------------------------------------------------------------------ utilidades
@@ -230,7 +234,10 @@ def load_policy(path: Path) -> Policy:
     ]
     if not rules:
         raise PolicyError(f"política {path}: nenhuma regra")
-    return Policy(rules, roots)
+    reminder = data.get("reminder_min", 0)
+    if type(reminder) not in (int, float) or not math.isfinite(reminder) or reminder < 0:
+        raise PolicyError("reminder_min precisa ser um número não negativo")
+    return Policy(rules, roots, reminder)
 
 
 def load_restricted_roots(path: Path) -> list[Path]:
@@ -329,6 +336,8 @@ def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> 
         return
     state["quota_checked_at"] = _iso(now)
     script_name = "quota_codex.py"
+    payload = {}
+    failed = False
     try:
         result = subprocess.run(
             ["python3", str(REPO_ROOT / "scripts" / script_name), "--write"],
@@ -336,9 +345,13 @@ def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> 
         )
         payload = parse_json(result.stdout)
         if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
+            failed = True
             log_event(log_path, now, "quota_error", detalhe=f"sensor {script_name} sem leitura válida")
     except (OSError, ValueError, subprocess.TimeoutExpired):
+        failed = True
         log_event(log_path, now, "quota_error", detalhe=f"falha ao atualizar franquia ({script_name})")
+    quota_samples(state, now, payload if isinstance(payload, dict) else {}, failed, log_path)
+    claude_quota_samples(state, now, log_path)
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -483,6 +496,9 @@ def load_state(path: Path) -> dict:
     for key in ("permissions", "notifications", "agents"):
         if not isinstance(data.get(key), dict):
             data[key] = {}
+    for agent in data["agents"].values():
+        if isinstance(agent, dict) and "title" in agent:
+            agent["title"] = None
     return data
 
 
@@ -494,12 +510,163 @@ def write_json(path: Path, data) -> None:
 
 
 def prune_state(state: dict, now: datetime) -> None:
+    # Avisos de agentes ativos precisam sobreviver à janela de retenção.
     cutoff = now - timedelta(days=STATE_KEEP_DAYS)
+    active = set(state["agents"])
     state["notifications"] = {
-        key: value
-        for key, value in state["notifications"].items()
-        if (_parse_ts(value) or cutoff) >= cutoff
+        key: value for key, value in state["notifications"].items()
+        if (not key.startswith("ghost:") and (
+            any(agent_id in key.split(":") for agent_id in active)
+            or key.startswith("question:")
+        )) or (_parse_ts(value) or cutoff) >= cutoff
     }
+
+
+def history_record(kind: str, now: datetime, **fields) -> dict:
+    return {
+        "schema_version": 1, "type": kind, "occurred_at": None,
+        "observed_at": _iso(now), "source": "watchdog",
+        "source_version": WATCHDOG_VERSION, "confidence": "unknown",
+        "task_id": None, "reason": "instante do evento e tarefa não informados pela fonte",
+        **fields,
+    }
+
+
+def append_history(state: dict, now: datetime, record: dict, log_path: Path) -> int:
+    """Histórico é opcional: falhas de disco nunca interrompem a vigilância."""
+    if os.environ.get("AI_OS_HISTORY", "1") == "0":
+        return 0
+    group = record["type"].split(".")[0]
+    group = {"agent": "agents", "quota": "quota", "collector": "collector"}[group]
+    path = _state_dir() / "history" / f"{group}-{now.astimezone():%Y-%m}.jsonl"
+    try:
+        line = (json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a+b") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell():
+                handle.seek(-1, os.SEEK_END)
+                if handle.read(1) != b"\n":
+                    line = b"\n" + line
+            written = handle.write(line)
+        state["_history_bytes"] = state.get("_history_bytes", 0) + written
+        return written
+    except (OSError, ValueError, TypeError):
+        log_event(log_path, now, "history_error", detalhe="não foi possível anexar histórico")
+        return 0
+
+
+def quota_samples(state: dict, now: datetime, payload: dict, failed: bool, log_path: Path) -> None:
+    """Registra cada janela; falha preserva só a identidade da janela anterior."""
+    fetched = _parse_ts(payload.get("fetched_at"))
+    stale = fetched is None or now - fetched > timedelta(minutes=QUOTA_INTERVAL_MIN * 2)
+    valid = not failed and payload.get("status") == "ok" and not stale
+    windows = payload.get("windows")
+    windows = [item for item in windows if isinstance(item, dict)] if isinstance(windows, list) else []
+    if windows:
+        state["quota_windows"] = [{key: item.get(key) for key in ("kind", "pool")} for item in windows]
+    windows = windows or state.get("quota_windows") or [{"kind": None, "pool": None}]
+    for window in windows:
+        used = window.get("used_percent")
+        known = valid and type(used) in (float, int) and math.isfinite(used) and 0 <= used <= 100
+        reset = _parse_ts(window.get("resets_at")) if known else None
+        append_history(state, now, history_record(
+            "quota.sample", now, provider="codex", pool=window.get("pool"),
+            window_kind=window.get("kind"), used_percent=used if known else None,
+            resets_at=_iso(reset) if reset else None,
+            sensor_status="error" if failed else ("stale" if stale else payload.get("status", "unknown")),
+            occurred_at=_iso(fetched) if fetched and not failed else None,
+            confidence="observed" if known else "unknown",
+            reason="tarefa não se aplica; pool ou reset podem não ser informados" if known else "sensor falhou, está desatualizado ou não informou a janela",
+        ), log_path)
+
+
+def claude_quota_samples(state: dict, now: datetime, log_path: Path) -> None:
+    """Lê o cache externo do Claude; só deduplica janelas realmente anexadas."""
+    payload = {}
+    sensor_status = "ok"
+    try:
+        payload = parse_json((_state_dir() / "quota" / "claude.json").read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("cache não é objeto")
+    except FileNotFoundError:
+        sensor_status = "missing"
+    except (OSError, ValueError, UnicodeError):
+        sensor_status = "invalid"
+    if not isinstance(payload, dict):
+        payload = {}
+    fetched = _parse_ts(payload.get("fetched_at"))
+    windows = payload.get("windows")
+    if sensor_status == "ok":
+        if fetched is None or fetched > now or payload.get("status") != "ok" or not isinstance(windows, list):
+            sensor_status = "invalid"
+        elif now - fetched > timedelta(minutes=15):
+            sensor_status = "stale"
+    windows = windows if isinstance(windows, list) else []
+    stamp = fetched.isoformat().replace("+00:00", "Z") if fetched else None
+    recorded = (state.get("quota_history") or {}).get("claude") or {}
+    done = set(recorded.get("windows", [])) if (
+        stamp and recorded.get("fetched_at") == stamp
+        and recorded.get("sensor_status") == sensor_status
+    ) else set()
+    for kind in ("five_hour", "seven_day"):
+        if kind in done:
+            continue
+        matches = [item for item in windows if isinstance(item, dict) and item.get("kind") == kind]
+        window = matches[0] if len(matches) == 1 else {}
+        used = window.get("used_percent")
+        known = sensor_status == "ok" and type(used) in (int, float) and math.isfinite(used) and 0 <= used <= 100
+        status = sensor_status if sensor_status != "ok" or known else "invalid"
+        reset = _parse_ts(window.get("resets_at")) if known else None
+        written = append_history(state, now, history_record(
+            "quota.sample", now, provider="claude", pool=None, window_kind=kind,
+            used_percent=used if known else None, resets_at=_iso(reset) if reset else None,
+            sensor_status=status, occurred_at=_iso(fetched) if fetched else None,
+            confidence="observed" if known else "unknown",
+            reason="tarefa não se aplica; pool ou reset podem não ser informados" if known else f"sensor Claude: {status}",
+        ), log_path)
+        if written and stamp:
+            done.add(kind)
+            state.setdefault("quota_history", {})["claude"] = {"fetched_at": stamp, "sensor_status": sensor_status, "windows": sorted(done)}
+
+
+def finish_cycle(state: dict, now: datetime, log_path: Path) -> None:
+    started = state.pop("_cycle_started", None)
+    elapsed = max(0, (time.perf_counter() - started) * 1000) if started is not None else 0
+    daily = state.get("collector_daily") or {}
+    today = now.astimezone().date().isoformat()
+    if daily and daily.get("date") != today:
+        append_history(state, now, history_record(
+            "collector.daily", now, occurred_at=_iso(now), confidence="observed",
+            reason="tarefa não se aplica a medidas do coletor", **daily,
+        ), log_path)
+        daily = {}
+    daily = daily or {"date": today, "cycles": 0, "total_ms": 0, "max_ms": 0, "bytes_appended": 0}
+    observed = state.pop("_agents_observed", False)
+    counter = "cycles_observed" if observed else "cycles_unobserved"
+    daily[counter] = daily.get(counter, 0) + 1
+    daily["cycles"] += 1
+    daily["total_ms"] += elapsed
+    daily["max_ms"] = max(daily["max_ms"], elapsed)
+    daily["bytes_appended"] += state.pop("_history_bytes", 0)
+    state["collector_daily"] = daily
+    state["last_cycle_at"] = _iso(now)
+    state["last_cycle_finished_at"] = _iso(now + timedelta(milliseconds=elapsed))
+
+
+def transition(state: dict, now: datetime, agent_id: str, before: dict, after: dict, log_path: Path) -> None:
+    if before.get("status") == after.get("status"):
+        return
+    append_history(state, now, history_record(
+        "agent.transition", now, agent_id=agent_id,
+        provider=after.get("provider"), model=after.get("model"),
+        title=None, project=after.get("project"), task_id=after.get("task_id"),
+        **{"from": before.get("status"), "to": after.get("status")},
+        reason_code="first_seen" if not before else ("missing" if after.get("status") == "desaparecido" else "state_changed"),
+        reason="instante exato não informado; campos ausentes ou restritos omitidos"
+        + ("; label task não exposto pela CLI" if after.get("task_id") is None else ""),
+        confidence="observed",
+    ), log_path)
 
 
 # ------------------------------------------------------------------ notificação / log
@@ -510,9 +677,11 @@ def _applescript_string(text: str) -> str:
 
 
 def notify(state: dict, now: datetime, key: str, title: str, message: str, dry_run: bool) -> bool:
-    """Notifica no macOS respeitando a janela de dedup. return: notificou agora?"""
+    """Notifica uma vez por condição; lembretes exigem política explícita."""
     last = _parse_ts(state["notifications"].get(key))
-    if last is not None and now - last < timedelta(minutes=DEDUP_MIN):
+    agent_alert = key.startswith(("pending:", "stuck:", "error:", "question:", "model:", "ghost:", "permit-error:"))
+    reminder = state.get("reminder_min", 0) if agent_alert else DEDUP_MIN
+    if last is not None and (not reminder or now - last < timedelta(minutes=reminder)):
         return False
     title = _clean(title, 60)
     message = _clean(message, 200)
@@ -667,18 +836,32 @@ def main(argv: list[str] | None = None) -> int:
     snapshot_path = state_dir / "agentes.json"
     log_path = state_dir / "watchdog.log"
     state = load_state(state_path)
+    state["_cycle_started"] = time.perf_counter()
+    state["_history_bytes"] = 0
+    state["_agents_observed"] = False
+    last_cycle = _parse_ts(state.get("last_cycle_finished_at")) or _parse_ts(state.get("last_cycle_at"))
+    gap = now - last_cycle if last_cycle else timedelta(0)
+    gap = gap if gap > timedelta(minutes=5) else timedelta(0)
+    gap_start = last_cycle
+    if gap and not args.dry_run:
+        append_history(state, now, history_record(
+            "collector.gap", now, start_at=_iso(last_cycle), end_at=_iso(now),
+            confidence="observed", reason="intervalo sem observação; tarefa não se aplica",
+        ), log_path)
     refresh_quota(state, now, args.dry_run, log_path)
 
     try:
         policy = load_policy(POLICY_PATH)
         restricted = load_restricted_roots(MEMORY_POLICY_PATH)
         allowed_models = load_allowed_models(MEMORY_POLICY_PATH)
+        state["reminder_min"] = policy.reminder_min
     except PolicyError as exc:
         message = _clean(str(exc))
         print(f"paseo_watchdog: {message}", file=sys.stderr)
         if not args.dry_run:
             log_event(log_path, now, "policy_error", detalhe=message)
             notify(state, now, "policy:error", "Paseo · vigia", f"política inválida: {message}", False)
+            finish_cycle(state, now, log_path)
             write_json(state_path, state)
         return 1
 
@@ -693,10 +876,25 @@ def main(argv: list[str] | None = None) -> int:
         message = _clean(str(exc))
         print(f"paseo_watchdog: {message}", file=sys.stderr)
         if not args.dry_run:
+            if not state.get("agents_unavailable_since"):
+                since = state.get("last_agents_observed_at") or (_iso(last_cycle) if last_cycle else _iso(now))
+                state["agents_unavailable_since"] = since
+                append_history(state, now, history_record(
+                    "collector.gap", now, start_at=since, end_at=_iso(now),
+                    confidence="observed", reason="paseo_unavailable",
+                ), log_path)
             log_event(log_path, now, "paseo_error", detalhe=message)
             notify(state, now, "paseo:error", "Paseo · vigia", f"CLI falhou: {message}", False)
+            finish_cycle(state, now, log_path)
             write_json(state_path, state)
         return 1
+
+    state["_agents_observed"] = True
+    state["last_agents_observed_at"] = _iso(now)
+    unavailable = _parse_ts(state.pop("agents_unavailable_since", None))
+    if unavailable and unavailable < now:
+        gap_start = min(gap_start, unavailable) if gap and gap_start else unavailable
+        gap = now - gap_start
 
     inspects: dict[str, dict] = {}
     for item in listed:
@@ -715,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
                 "Cwd": _field(item, "cwd", default=""),
                 "_inspect_error": _clean(str(exc)),
             }
+        if not _field(inspect, "Labels", "labels", default=None):
+            inspect["labels"] = _field(item, "Labels", "labels", default={})
         if _bool(_field(inspect, "Archived", "archived", default=False)):
             continue
         inspects[str(_field(inspect, "Id", "id", default=agent_id))] = inspect
@@ -726,9 +926,12 @@ def main(argv: list[str] | None = None) -> int:
         except (PolicyError, OSError):
             restricted_agent = True
             inspect["_inspect_error"] = "classificação do projeto indisponível"
+        inspect["_restricted"] = restricted_agent
         if restricted_agent and not model_allowed(_provider_label(inspect, {}), allowed_models):
             blocked_models.add(agent_id)
             message = f"modelo não permitido em projeto restrito: {_provider_label(inspect, {}) or 'desconhecido'}"
+            if not (state["agents"].get(agent_id) or {}).get("modelo_bloqueado"):
+                state["notifications"].pop(f"model:{agent_id}", None)
             notify(state, now, f"model:{agent_id}", "Paseo · prioridade alta", message, args.dry_run)
             if not args.dry_run and not (state["agents"].get(agent_id) or {}).get("modelo_bloqueado"):
                 log_event(log_path, now, "modelo_nao_permitido", agente=agent_id, detalhe=message)
@@ -745,8 +948,17 @@ def main(argv: list[str] | None = None) -> int:
             entry = {"first_seen": _iso(now), "agent": str(_field(permit, "agentId", "AgentId", default=""))}
             state["permissions"][request_id] = entry
         pending_permissions.append({**permit, "first_seen": entry["first_seen"]})
+    if gap:
+        for permit in pending_permissions:
+            first = _parse_ts(permit["first_seen"])
+            if first and first <= gap_start:
+                permit["first_seen"] = _iso(first + gap)
+                state["permissions"][str(_field(permit, "id", "Id"))]["first_seen"] = permit["first_seen"]
     keep = {str(_field(permit, "id", "Id", default="")) for permit in permits}
     state["permissions"] = {key: value for key, value in state["permissions"].items() if key in keep or value.get("ghost")}
+    for key in list(state["notifications"]):
+        if key.startswith("question:") and key.removeprefix("question:") not in keep:
+            del state["notifications"][key]
 
     for permit in pending_permissions:
         request_id = str(_field(permit, "id", "Id", default=""))
@@ -814,8 +1026,19 @@ def main(argv: list[str] | None = None) -> int:
     snapshot: list[dict] = []
     agents_state: dict[str, dict] = {}
     for agent_id, inspect in inspects.items():
-        previous = str((state["agents"].get(agent_id) or {}).get("status", ""))
-        status, reason, reference = _classify(inspect, pending_by_agent.get(agent_id, []), now, previous)
+        before = state["agents"].get(agent_id) or {}
+        previous = str(before.get("status", ""))
+        raw_updated = _field(inspect, "UpdatedAt", "updatedAt", default="")
+        activity = _parse_ts(raw_updated)
+        if before.get("source_updated_at") == raw_updated:
+            activity = _parse_ts(before.get("activity_reference")) or activity
+        if gap and activity and activity <= now:
+            # Só o trecho efetivamente observado pode contar como inatividade.
+            activity += now - max(activity, gap_start)
+        classified_inspect = dict(inspect)
+        if str(_field(inspect, "Status", "status")).lower() == "running" and activity:
+            classified_inspect["UpdatedAt"] = _iso(activity)
+        status, reason, reference = _classify(classified_inspect, pending_by_agent.get(agent_id, []), now, previous)
         agent_pending = pending_by_agent.get(agent_id, [])
         if any(item.get("_ghost") for item in agent_pending):
             status, reason = "pedido_fantasma", "pedido fantasma — provável reinício do OpenCode; retome com paseo send ou apague o agente"
@@ -835,7 +1058,29 @@ def main(argv: list[str] | None = None) -> int:
             "verificado_em": _iso(now),
         })
         snapshot[-1]["modelo_bloqueado"] = agent_id in blocked_models
-        agents_state[agent_id] = {"status": status, "updated_at": _iso(reference) if reference else "", "modelo_bloqueado": agent_id in blocked_models}
+        restricted_agent = inspect.get("_restricted", True)
+        labels = _field(inspect, "Labels", "labels", default={})
+        task = labels.get("task") if isinstance(labels, dict) else None
+        agents_state[agent_id] = {
+            "status": status, "updated_at": _iso(reference) if reference else "",
+            "modelo_bloqueado": agent_id in blocked_models,
+            "provider": _field(inspect, "Provider", "provider", default=None),
+            "model": _field(inspect, "Model", "model", default=None),
+            "task_id": str(task) if task is not None else None,
+            "title": None,
+            "project": "restrito" if restricted_agent else (Path(cwd).name if cwd else None),
+            "pending_requests": sorted(str(_field(item, "id", "Id")) for item in agent_pending),
+            "source_updated_at": raw_updated,
+            "activity_reference": _iso(activity) if activity else None,
+        }
+        if agents_state[agent_id]["pending_requests"] != before.get("pending_requests", []):
+            state["notifications"].pop(f"pending:{agent_id}", None)
+        if status != previous:
+            for key in list(state["notifications"]):
+                if key in {f"pending:{agent_id}", f"stuck:{agent_id}", f"error:{agent_id}"}:
+                    del state["notifications"][key]
+        if not args.dry_run:
+            transition(state, now, agent_id, before, agents_state[agent_id], log_path)
 
         if status == "aguardando_aprovacao" and age is not None and age >= timedelta(minutes=PENDING_MIN) and not any(_is_question(item) for item in agent_pending) and agent_id not in blocked_models:
             notified = notify(
@@ -853,12 +1098,16 @@ def main(argv: list[str] | None = None) -> int:
                 log_event(log_path, now, "parado", agente=agent_id, detalhe=reason, espera=_age_text(age))
         elif status == "erro":
             notified = notify(
-                state, now, f"error:{agent_id}:{_clean(reason, 40)}", f"Paseo · {name}",
+                state, now, f"error:{agent_id}", f"Paseo · {name}",
                 f"erro: {reason}", args.dry_run,
             )
             if notified:
                 log_event(log_path, now, "erro", agente=agent_id, detalhe=reason)
 
+    if not args.dry_run:
+        for agent_id, before in state["agents"].items():
+            if agent_id not in agents_state:
+                transition(state, now, agent_id, before, {**before, "status": "desaparecido"}, log_path)
     state["agents"] = agents_state
 
     # -- agendamentos -------------------------------------------------------
@@ -904,6 +1153,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {line}")
         return 0
 
+    finish_cycle(state, now, log_path)
     write_json(state_path, state)
     write_json(snapshot_path, snapshot)
     for line in schedule_lines:

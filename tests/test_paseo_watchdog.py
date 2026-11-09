@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -593,6 +594,406 @@ class WatchdogTests(unittest.TestCase):
             'git', '-c', 'core.fsmonitor=false', '--no-optional-locks',
             '-C', str(self.agent_cwd), 'status', '--porcelain',
         ])
+
+
+    def history(self, group):
+        directory = self.state_dir / 'history'
+        return [json.loads(line) for path in sorted(directory.glob(group + '-*.jsonl'))
+                for line in path.read_text().splitlines()]
+
+    def assert_history_contract(self, records):
+        for record in records:
+            self.assertEqual(record['schema_version'], 1)
+            self.assertEqual(record['source'], 'watchdog')
+            self.assertEqual(record['source_version'], watchdog.WATCHDOG_VERSION)
+            self.assertTrue(record['observed_at'].endswith('Z'))
+            self.assertIn(record['confidence'], {'observed', 'estimated', 'unknown'})
+            self.assertIn('task_id', record)
+            self.assertIn('occurred_at', record)
+            self.assertTrue(record['reason'])
+
+    def test_historico_franquia_por_janela_e_falha_null(self):
+        self.quota_patch.stop()
+        payload = {'status': 'ok', 'fetched_at': iso(NOW), 'windows': [
+            {'kind': 'five_hour', 'used_percent': 25.0, 'resets_at': iso(NOW + timedelta(hours=2))},
+            {'kind': 'weekly', 'used_percent': 0.0, 'resets_at': iso(NOW + timedelta(days=2))},
+        ]}
+        state = watchdog._empty_state()
+        log = self.state_dir / 'watchdog.log'
+        with patch.object(watchdog.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(payload), '')):
+            watchdog.refresh_quota(state, NOW, False, log)
+            watchdog.refresh_quota(state, NOW + timedelta(seconds=30), False, log)
+        records = [r for r in self.history('quota') if r['provider'] == 'codex']
+        self.assertEqual(len(records), 2)
+        self.assertEqual([r['used_percent'] for r in records], [25.0, 0.0])
+        self.assertTrue(all(r['confidence'] == 'observed' for r in records))
+        with patch.object(watchdog.subprocess, 'run', side_effect=subprocess.TimeoutExpired('quota', 30)):
+            watchdog.refresh_quota(state, NOW + timedelta(minutes=5), False, log)
+        records = [r for r in self.history('quota') if r['provider'] == 'codex']
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(r['used_percent'] is None and r['confidence'] == 'unknown' for r in records[2:]))
+        self.assert_history_contract(records)
+
+    def test_sensor_stale_nunca_reusa_percentual(self):
+        state = watchdog._empty_state()
+        watchdog.quota_samples(state, NOW, {'status': 'ok', 'fetched_at': iso(NOW - timedelta(hours=1)),
+            'windows': [{'kind': 'weekly', 'used_percent': 50}]}, False, self.state_dir / 'watchdog.log')
+        record = self.history('quota')[0]
+        self.assertIsNone(record['used_percent'])
+        self.assertEqual(record['sensor_status'], 'stale')
+        self.assertEqual(record['confidence'], 'unknown')
+
+    def test_cinquenta_ciclos_parado_uma_transicao_um_toast(self):
+        fake = FakePaseo([self.agent(minutes_ago=20)])
+        with patch.object(watchdog, 'run_paseo', fake), \
+             patch.object(watchdog.subprocess, 'run', return_value=MagicMock(returncode=0)) as toast, \
+             patch.object(watchdog, '_now', side_effect=[NOW + timedelta(seconds=30 * i) for i in range(50)]):
+            for _ in range(50):
+                self.assertEqual(watchdog.main(['--once']), 0)
+        self.assertEqual(toast.call_count, 1)
+        records = self.history('agents')
+        self.assertEqual(len(records), 1)
+        self.assertIsNone(records[0]['from'])
+        self.assertEqual(records[0]['to'], 'parado')
+        self.assertIsNone(records[0]['task_id'])
+        self.assert_history_contract(records)
+
+    def test_transicoes_reentrada_e_desaparecimento(self):
+        agent = self.agent(minutes_ago=20)
+        fake = FakePaseo([agent])
+        self.run_watchdog(fake)
+        agent['UpdatedAt'] = iso(NOW)
+        self.run_watchdog(fake)
+        agent['UpdatedAt'] = iso(NOW - timedelta(minutes=20))
+        _, toast = self.run_watchdog(fake)
+        self.assertEqual(toast.call_count, 1)
+        fake.agents = []
+        self.run_watchdog(fake)
+        self.run_watchdog(fake)
+        self.assertEqual([r['to'] for r in self.history('agents')],
+                         ['parado', 'trabalhando', 'parado', 'desaparecido'])
+
+    def test_restrito_sem_titulo_caminho_ou_conteudo_no_historico(self):
+        self.memory.write_text(f'[restricted]\npaths = ["{self.agent_cwd}"]\nallowed_models = ["opencode/deepseek-v4.1-flash-free"]\n')
+        agent = self.agent(name='titulo confidencial')
+        agent['labels'] = {'task': 'p1'}
+        self.run_watchdog(FakePaseo([agent]))
+        record = self.history('agents')[0]
+        self.assertIsNone(record['title'])
+        self.assertEqual(record['project'], 'restrito')
+        self.assertEqual(record['task_id'], 'p1')
+        self.assertNotIn('titulo confidencial', json.dumps(record))
+        self.assertNotIn(str(self.agent_cwd), json.dumps(record))
+
+    def test_lacuna_nao_conta_como_inatividade_nem_no_ciclo_seguinte(self):
+        fake = FakePaseo([self.agent()])
+        self.run_watchdog(fake)
+        for seconds in (3600, 3630):
+            with patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                _, toast = self.run_watchdog(fake)
+            self.assertEqual(self.snapshot()[0]['status'], 'trabalhando')
+            self.assertEqual(toast.call_count, 0)
+        records = self.history('collector')
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['type'], 'collector.gap')
+        self.assertEqual(records[0]['start_at'], iso(NOW))
+        self.assertEqual(records[0]['end_at'], iso(NOW + timedelta(hours=1)))
+
+    def test_historico_kill_switch_e_falha_de_escrita(self):
+        fake = FakePaseo([self.agent(minutes_ago=20)])
+        with patch.dict(os.environ, {'AI_OS_HISTORY': '0'}):
+            code, toast = self.run_watchdog(fake)
+        self.assertEqual(code, 0)
+        self.assertEqual(toast.call_count, 1)
+        self.assertFalse((self.state_dir / 'history').exists())
+        (self.state_dir / 'history').write_text('impede criar diretório')
+        fake.agents[0]['UpdatedAt'] = iso(NOW)
+        code, _ = self.run_watchdog(fake)
+        self.assertEqual(code, 0)
+        self.assertIn('history_error', (self.state_dir / 'watchdog.log').read_text())
+
+    def test_diario_acumula_e_emite_so_na_virada(self):
+        fake = FakePaseo([self.agent()])
+        self.run_watchdog(fake)
+        self.run_watchdog(fake)
+        daily = self.state()['collector_daily']
+        self.assertEqual(daily['cycles'], 2)
+        self.assertGreater(daily['bytes_appended'], 0)
+        self.assertGreaterEqual(daily['total_ms'], daily['max_ms'])
+        self.assertEqual(self.history('collector'), [])
+        with patch.object(watchdog, '_now', return_value=NOW + timedelta(days=1)):
+            self.run_watchdog(fake)
+            self.run_watchdog(fake)
+        records = [r for r in self.history('collector') if r['type'] == 'collector.daily']
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['cycles'], 2)
+        self.assertEqual(records[0]['date'], NOW.date().isoformat())
+        self.assertEqual(self.state()['collector_daily']['cycles'], 2)
+
+    def test_lembrete_opt_in_e_erro_continuo_com_texto_diferente(self):
+        self.policy.write_text(self.policy.read_text().replace('version = 1', 'version = 1\nreminder_min = 1'))
+        fake = FakePaseo([self.agent(status='error', error='primeiro erro')])
+        self.run_watchdog(fake)
+        fake.agents[0]['Error'] = 'outro erro'
+        _, toast = self.run_watchdog(fake)
+        self.assertEqual(toast.call_count, 0)
+        with patch.object(watchdog, '_now', return_value=NOW + timedelta(minutes=1)):
+            _, toast = self.run_watchdog(fake)
+        self.assertEqual(toast.call_count, 1)
+        self.assertEqual(len(self.history('agents')), 1)
+
+
+    def test_labels_da_listagem_e_limiar_de_aprovacao(self):
+        agent = self.agent()
+        fake = FakePaseo([agent], [self.permit(description='comando precisa de humano')])
+        original = fake.__call__
+        def cli(args, check=True):
+            if args[:1] == ['ls']:
+                return json.dumps([{**agent, 'labels': {'task': 'p1'}}])
+            return original(args, check)
+        with patch.object(watchdog, 'run_paseo', side_effect=cli), \
+             patch.object(watchdog.subprocess, 'run', return_value=MagicMock(returncode=0)) as toast:
+            watchdog.main(['--once'])
+            self.assertEqual(toast.call_count, 0)
+            for seconds in (30, 60, 90, 120, 150):
+                with patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                    watchdog.main(['--once'])
+            self.assertEqual(toast.call_count, 1)
+        self.assertEqual(self.history('agents')[0]['task_id'], 'p1')
+        self.assertEqual(len(self.history('agents')), 1)
+
+
+    def test_atividade_dentro_da_lacuna_recomeca_contagem_observada(self):
+        agent = self.agent()
+        fake = FakePaseo([agent])
+        self.run_watchdog(fake)
+        agent['UpdatedAt'] = iso(NOW + timedelta(minutes=5))
+        for seconds in (3600, 3630):
+            with patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                _, toast = self.run_watchdog(fake)
+            self.assertEqual(self.snapshot()[0]['status'], 'trabalhando')
+            self.assertEqual(toast.call_count, 0)
+        self.assertEqual(len(self.history('agents')), 1)
+
+
+    def write_claude_quota(self, fetched=NOW):
+        path = self.state_dir / 'quota' / 'claude.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'provider': 'claude', 'status': 'ok', 'fetched_at': iso(fetched),
+            'windows': [
+                {'kind': 'five_hour', 'used_percent': 23.0, 'resets_at': iso(NOW + timedelta(hours=1))},
+                {'kind': 'seven_day', 'used_percent': 41.0, 'resets_at': None},
+            ]}))
+        return path
+
+    def test_cache_claude_em_refresh_e_dedup_persistido_por_provider(self):
+        self.quota_patch.stop()
+        self.write_claude_quota()
+        state = watchdog._empty_state()
+        log = self.state_dir / 'watchdog.log'
+        output = {'status': 'ok', 'fetched_at': iso(NOW), 'windows': [
+            {'kind': 'five_hour', 'used_percent': 10, 'resets_at': None}]}
+        with patch.object(watchdog.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(output), '')):
+            watchdog.refresh_quota(state, NOW, False, log)
+            watchdog.write_json(self.state_dir / 'watchdog-state.json', state)
+            state = watchdog.load_state(self.state_dir / 'watchdog-state.json')
+            watchdog.refresh_quota(state, NOW + timedelta(minutes=5), False, log)
+        records = self.history('quota')
+        claude = [r for r in records if r['provider'] == 'claude']
+        self.assertEqual([r['window_kind'] for r in claude], ['five_hour', 'seven_day'])
+        self.assertEqual([r['used_percent'] for r in claude], [23.0, 41.0])
+        self.assertTrue(all(r['confidence'] == 'observed' and r['occurred_at'] == iso(NOW) for r in claude))
+        self.assertEqual(len([r for r in records if r['provider'] == 'codex']), 2)
+        self.assert_history_contract(records)
+
+    def test_cache_claude_missing_stale_invalid_e_utf8_invalido(self):
+        path = self.state_dir / 'quota' / 'claude.json'
+        for failure in ('missing', 'stale', 'invalid', 'utf8'):
+            with self.subTest(failure=failure):
+                if failure == 'stale':
+                    self.write_claude_quota(NOW - timedelta(minutes=16))
+                elif failure == 'invalid':
+                    path.write_text('{quebrado')
+                elif failure == 'utf8':
+                    path.write_bytes(b'\xff')
+                watchdog.claude_quota_samples(watchdog._empty_state(), NOW, self.state_dir / 'watchdog.log')
+                records = self.history('quota')[-2:]
+                self.assertTrue(all(r['used_percent'] is None and r['confidence'] == 'unknown' for r in records))
+                expected = 'invalid' if failure == 'utf8' else failure
+                self.assertTrue(all(expected in r['reason'] and r['sensor_status'] == expected for r in records))
+                self.assert_history_contract(records)
+
+    def test_cache_claude_falha_parcial_tenta_so_janela_nao_gravada(self):
+        self.write_claude_quota()
+        state = watchdog._empty_state()
+        log = self.state_dir / 'watchdog.log'
+        with patch.object(watchdog, 'append_history', side_effect=[100, 0]) as append:
+            watchdog.claude_quota_samples(state, NOW, log)
+        self.assertEqual(state['quota_history']['claude']['windows'], ['five_hour'])
+        with patch.object(watchdog, 'append_history', return_value=100) as append:
+            watchdog.claude_quota_samples(state, NOW + timedelta(minutes=5), log)
+        self.assertEqual(append.call_count, 1)
+        self.assertEqual(append.call_args.args[2]['window_kind'], 'seven_day')
+        self.assertEqual(state['quota_history']['claude']['windows'], ['five_hour', 'seven_day'])
+        state = watchdog._empty_state()
+        with patch.dict(os.environ, {'AI_OS_HISTORY': '0'}):
+            watchdog.claude_quota_samples(state, NOW, log)
+        self.assertNotIn('quota_history', state)
+
+
+    def test_permissoes_sucessivas_rearmam_alerta_sem_mudar_status(self):
+        fake = FakePaseo([self.agent()], [self.permit(description='precisa de humano', first_seen_minutes=5)])
+        _, toast = self.run_watchdog(fake)
+        self.assertEqual(toast.call_count, 1)
+        fake.permits = [self.permit(request_id='req2', description='outro pedido humano')]
+        _, toast = self.run_watchdog(fake)
+        self.assertEqual(toast.call_count, 0)
+        total = 0
+        for seconds in (30, 60, 90, 120, 150):
+            with patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                _, toast = self.run_watchdog(fake)
+            total += toast.call_count
+        self.assertEqual(total, 1)
+        self.assertEqual(len(self.history('agents')), 1)
+        self.assertEqual(self.state()['agents']['a1']['pending_requests'], ['req2'])
+
+    def test_claude_ok_para_stale_gera_unknown_uma_vez(self):
+        self.write_claude_quota()
+        state = watchdog._empty_state()
+        log = self.state_dir / 'watchdog.log'
+        watchdog.claude_quota_samples(state, NOW, log)
+        watchdog.claude_quota_samples(state, NOW + timedelta(minutes=16), log)
+        watchdog.write_json(self.state_dir / 'watchdog-state.json', state)
+        state = watchdog.load_state(self.state_dir / 'watchdog-state.json')
+        watchdog.claude_quota_samples(state, NOW + timedelta(minutes=20), log)
+        records = self.history('quota')
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(r['used_percent'] is None and r['sensor_status'] == 'stale'
+                            and r['confidence'] == 'unknown' for r in records[2:]))
+
+    def test_claude_occurred_at_segundos_utc(self):
+        path = self.write_claude_quota()
+        payload = json.loads(path.read_text())
+        payload['fetched_at'] = '2026-10-25T14:59:59.123456-03:00'
+        path.write_text(json.dumps(payload))
+        watchdog.claude_quota_samples(watchdog._empty_state(), NOW, self.state_dir / 'watchdog.log')
+        self.assertTrue(all(r['occurred_at'] == '2026-10-25T17:59:59Z' for r in self.history('quota')))
+
+    def test_resumo_e_arquivos_usam_dia_e_mes_local(self):
+        try:
+            with patch.dict(os.environ, {'TZ': 'America/Fortaleza'}):
+                time.tzset()
+                state = watchdog._empty_state()
+                log = self.state_dir / 'watchdog.log'
+                first = datetime(2026, 10, 1, 1, tzinfo=timezone.utc)
+                watchdog.append_history(state, first, watchdog.history_record('quota.sample', first), log)
+                self.assertTrue((self.state_dir / 'history' / 'quota-2026-09.jsonl').exists())
+                watchdog.finish_cycle(state, first, log)
+                self.assertEqual(state['collector_daily']['date'], '2026-09-30')
+                watchdog.finish_cycle(state, first + timedelta(hours=1), log)
+                self.assertEqual(self.history('collector'), [])
+                watchdog.finish_cycle(state, first + timedelta(hours=2), log)
+                record = self.history('collector')[0]
+                self.assertEqual(record['date'], '2026-09-30')
+                self.assertEqual(record['observed_at'], '2026-10-01T03:00:00Z')
+                self.assertTrue((self.state_dir / 'history' / 'collector-2026-10.jsonl').exists())
+                self.assertEqual(state['collector_daily']['date'], '2026-10-01')
+        finally:
+            time.tzset()
+
+    def test_historico_separa_ultima_linha_sem_newline_e_conta_bytes(self):
+        directory = self.state_dir / 'history'
+        directory.mkdir()
+        path = directory / f'quota-{NOW.astimezone():%Y-%m}.jsonl'
+        for previous in (b'{"antigo":true}', b'{"truncado":'):
+            with self.subTest(previous=previous):
+                path.write_bytes(previous)
+                state = watchdog._empty_state()
+                record = watchdog.history_record('quota.sample', NOW)
+                expected = (json.dumps(record, ensure_ascii=False) + '\n').encode()
+                written = watchdog.append_history(state, NOW, record, self.state_dir / 'watchdog.log')
+                self.assertEqual(path.read_bytes(), previous + b'\n' + expected)
+                self.assertEqual(written, len(expected) + 1)
+                self.assertEqual(state['_history_bytes'], written)
+                self.assertEqual(json.loads(path.read_text().splitlines()[-1]), record)
+
+    def test_ciclo_longo_e_intervalo_normal_nao_geram_lacuna(self):
+        fake = FakePaseo([self.agent(minutes_ago=9)])
+        with patch.object(watchdog.time, 'perf_counter', side_effect=[0, 80]):
+            self.run_watchdog(fake)
+        self.assertEqual(self.state()['last_cycle_finished_at'], iso(NOW + timedelta(seconds=80)))
+        self.assertEqual(self.snapshot()[0]['status'], 'trabalhando')
+        with patch.object(watchdog.time, 'perf_counter', side_effect=[100, 100]), \
+             patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=110)):
+            _, toast = self.run_watchdog(fake)
+        self.assertEqual(self.history('collector'), [])
+        self.assertEqual(self.state()['agents']['a1']['activity_reference'], iso(NOW - timedelta(minutes=9)))
+        self.assertEqual(self.snapshot()[0]['status'], 'parado')
+        self.assertEqual(toast.call_count, 1)
+
+    def test_lacuna_exige_mais_de_cinco_minutos_apos_fim(self):
+        fake = FakePaseo([self.agent()])
+        for seconds in (0, 300):
+            with patch.object(watchdog.time, 'perf_counter', return_value=0), \
+                 patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                self.run_watchdog(fake)
+        self.assertEqual(self.history('collector'), [])
+        with patch.object(watchdog.time, 'perf_counter', return_value=0), \
+             patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=601)):
+            self.run_watchdog(fake)
+        self.assertEqual(len(self.history('collector')), 1)
+        self.assertEqual(self.snapshot()[0]['status'], 'trabalhando')
+
+    def test_historico_nunca_guarda_titulo_inclusive_desaparecimento_legado(self):
+        self.run_watchdog(FakePaseo([self.agent(name='titulo particular')]))
+        self.assertIsNone(self.state()['agents']['a1']['title'])
+        self.assertIsNone(self.history('agents')[0]['title'])
+        state = self.state()
+        state['agents']['a1']['title'] = 'titulo legado particular'
+        watchdog.write_json(self.state_dir / 'watchdog-state.json', state)
+        self.run_watchdog(FakePaseo([]))
+        self.assertTrue(all(r['title'] is None for r in self.history('agents')))
+
+    def test_notificacoes_ghost_expiram_mesmo_com_agente_ativo(self):
+        state = watchdog._empty_state()
+        state['agents'] = {'a1': {'status': 'pedido_fantasma'}}
+        state['notifications'] = {'ghost:a1': iso(NOW - timedelta(days=8)),
+                                  'ghost:req2': iso(NOW - timedelta(days=6)),
+                                  'stuck:a1': iso(NOW - timedelta(days=8))}
+        watchdog.prune_state(state, NOW)
+        self.assertNotIn('ghost:a1', state['notifications'])
+        self.assertIn('ghost:req2', state['notifications'])
+        self.assertIn('stuck:a1', state['notifications'])
+
+    def test_cli_indisponivel_registra_uma_lacuna_preserva_e_rearma(self):
+        fake = FakePaseo([self.agent()])
+        self.run_watchdog(fake)
+        previous = self.state()['agents']
+        def offline(args, check=True):
+            if args[:1] == ['ls']:
+                raise watchdog.PaseoError('offline')
+            return fake(args, check)
+        with patch.object(watchdog, 'run_paseo', side_effect=offline), \
+             patch.object(watchdog.subprocess, 'run', return_value=MagicMock(returncode=0)):
+            for seconds in (30, 60):
+                with patch.object(watchdog, '_now', return_value=NOW + timedelta(seconds=seconds)):
+                    self.assertEqual(watchdog.main(['--once']), 1)
+        state = self.state()
+        self.assertEqual(state['agents'], previous)
+        self.assertEqual(state['collector_daily']['cycles_observed'], 1)
+        self.assertEqual(state['collector_daily']['cycles_unobserved'], 2)
+        records = [r for r in self.history('collector') if r['reason'] == 'paseo_unavailable']
+        self.assertEqual(len(records), 1)
+        with patch.object(watchdog, '_now', return_value=NOW + timedelta(hours=1)):
+            self.run_watchdog(fake)
+        self.assertNotIn('agents_unavailable_since', self.state())
+        self.assertEqual(self.snapshot()[0]['status'], 'trabalhando')
+        with patch.object(watchdog, 'run_paseo', side_effect=offline), \
+             patch.object(watchdog.subprocess, 'run', return_value=MagicMock(returncode=0)), \
+             patch.object(watchdog, '_now', return_value=NOW + timedelta(hours=1, seconds=30)):
+            self.assertEqual(watchdog.main(['--once']), 1)
+        records = [r for r in self.history('collector') if r['reason'] == 'paseo_unavailable']
+        self.assertEqual(len(records), 2)
 
 
 if __name__ == '__main__':
