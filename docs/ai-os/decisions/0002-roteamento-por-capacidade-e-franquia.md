@@ -55,3 +55,23 @@ Akita LLM benchmark v4 (23/09/2026, Rails com 14 sabotagens de segurança): Opus
 ## Consequências
 
 Os sensores e a telemetria começam a gerar dados reais. O roteamento continua uma sugestão revisável. Qualquer automação (failover, classificador) precisa provar ganho medido antes de entrar no caminho principal.
+
+
+## Emenda 2026-11-09
+
+Aprovada por Felipe em 09/11/2026, junto com a aceitação do ADR-0005.
+
+**GPT-6 Astra (Codex), uso com muito cuidado.** Evidência: uma única revisão somente leitura com `gpt-6-astra` (thinking padrão) consumiu 27% da janela de 5h do Codex em 09/11; antes, 3 agentes Astra pararam por limite (I-11). Regra: Astra só para risco alto, quando nenhum executor mais barato atinge o piso de qualidade; sempre com `--thinking low` ou `medium` explícito, uma tarefa por vez e com franquia Codex 5h < 50%. Todo `paseo run` de Codex leva `--thinking` explícito.
+
+**Revisores de risco médio**, nesta ordem: Gemini 4 Argon via `agy --mode plan` (pool Google), gpt-6.1-sol com thinking low/medium, gpt-6-luna para revisões mecânicas.
+
+**Modelos Codex disponíveis** (`paseo provider models codex`): gpt-6.1-sol (workhorse), gpt-6-astra (frontier), gpt-6.1-terra (custo relativo não medido), gpt-6-sol, gpt-6-luna (rápido e barato), gpt-5.6-sol/terra/luna (gerações antigas).
+
+**Decomposição para economia.** O orquestrador (Claude) quebra a tarefa e envia cada parte ao modelo mais barato que atinge o piso de qualidade:
+
+- Haiku: checagens, inventários e verificações mecânicas.
+- Sonnet (nativo ou via Antigravity, que gasta o pool Google "Claude and GPT models"): docs e implementação de rotina.
+- Gemini Flash via Paseo: código pequeno verificável por testes (medido: 3% da janela 5h para script + 14 testes).
+- Opus: só orquestração e decisão de risco alto.
+
+Exemplo real de 09/11: instalação → orquestrador; pesquisa e retrospectiva → Sonnet; script de franquia → Gemini Flash via Paseo; revisão → Astra (caro demais, 27%); correções → Sonnet; checagem final → Haiku; docs desta emenda → Claude Sonnet via Antigravity.

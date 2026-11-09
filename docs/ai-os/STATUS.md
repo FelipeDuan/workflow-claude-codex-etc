@@ -16,7 +16,7 @@ Legenda: CONFIRMADO FUNCIONAL · INSTALADO MAS NÃO VALIDADO · EXPERIMENTAL · 
 | OpenCode | 2.0.32 (fixada; npm com integridade sha512, em `~/.opencode`) | CONFIRMADO FUNCIONAL (laboratório) | serviço movido para a porta 49375 (conflito com o ai-memory em 49374); plugin + MCP do ai-memory; descobre as skills de `~/.claude/skills` e `~/.agents/skills`; modelos `opencode/*-free` sem login | política de permissões; AGENTS.md global; provedor econômico com login |
 | Paseo | — | PENDENTE | não instalado | verificar procedência e instalação oficial |
 | AI-Memory | 3.2.0 (fixada) | EXPERIMENTAL: handoff Claude→Codex ok, Codex→Claude parcial | binário em `~/.local/lib/ai-memory`; LaunchAgent `com.github.akitaonrails.ai-memory` em 127.0.0.1:49374 com bearer token; hooks Claude+Codex em **allowlist** (só repos com `.ai-memory.toml`), `--project-strategy repo-root`; MCP Claude via `mcp-bridge` conectado | resolver lacunas do T2 |
-| Antigravity / Gemini | 1.5.3 | EXPERIMENTAL, integrado (09/11) | `agy` via brew cask; provider `antigravity` no Paseo (só `full-access`, override `--sandbox`); guia de modelos em `MODELOS_2026.md` e na skill; ADR-0005 proposto | só baixo/médio risco, fora de projeto restrito; cota via `agy -p "/usage"` |
+| Antigravity / Gemini | 1.5.3 | EXPERIMENTAL, integrado (09/11) | `agy` via brew cask; provider `antigravity` no Paseo (só `full-access`, override `--sandbox`); guia de modelos em `MODELOS_2026.md` e na skill; ADR-0005 aceito (09/11) | só baixo/médio risco, fora de projeto restrito; cota via `agy -p "/usage"` |
 | DeepSeek Harness | — | PENDENTE | não instalado | só com justificativa |
 | Handoff entre harnesses | ai-memory 3.2.0 | CONFIRMADO FUNCIONAL (laboratório) | Claude → Codex → OpenCode → Claude, ver T2 | testar parada abrupta |
 | Failover automático | — | PENDENTE | — | só depois do handoff manual |
@@ -236,10 +236,9 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - `ai-memory doctor` no repo: `antigravity-cli 1 local → 1 captured`.
 - Testes: `python3 -m unittest discover -s tests` 83 OK (novo `tests/test_install_antigravity.py`); `scripts/check.sh` 8/8 PASS.
 
-**Decisões em vigor:** via Paseo só risco baixo, repo sem segredos, worktree novo (organização, não isolamento do host), revisão do diff, nunca em projeto restrito (fora de `allowed_models`); revisão cross-family preferencialmente com `agy --mode plan` direto; ver I-32 e rascunho ADR-0005.
+**Decisões em vigor:** via Paseo só risco baixo, repo sem segredos, worktree novo (organização, não isolamento do host), revisão do diff, nunca em projeto restrito (fora de `allowed_models`); revisão cross-family preferencialmente com `agy --mode plan` direto; ver I-32 e ADR-0005 (aceito em 09/11/2026). Astra só com cautela (emenda ao ADR-0002, 09/11).
 
 **Pendências**
-- Felipe: aceitar ou ajustar o ADR-0005 (Proposto).
 - Franquia e política de dados da conta Google: não confirmadas.
 - O link `~/.gemini/config/AGENTS.md` aponta para este worktree; os outros harnesses apontam para `workflow-ai/AGENTS.md`. Depois do merge em `feat/design-workflow-v1`, rodar `./install.sh --only antigravity` a partir de `workflow-ai/` para alinhar.
 - Subagentes do repo não convertidos para o formato do `agy`; o autoenable do ai-memory (`scripts/ai_memory_autoenable.py`) não cobre o `agy`.

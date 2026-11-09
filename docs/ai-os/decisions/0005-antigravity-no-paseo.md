@@ -1,6 +1,6 @@
 # ADR-0005: Antigravity CLI (Gemini) como executor do Paseo
 
-**Status:** Proposto, aguarda Felipe (rascunho de 09/11/2026). Até a aceitação, o uso segue as restrições abaixo e vale como experimento.
+**Status:** Aceito em 2026-11-09 por Felipe, como recomendado. O uso continua sob as restrições abaixo.
 
 ## Contexto
 
@@ -10,13 +10,13 @@ Mitigação disponível e testada em 09/11: o override `agents.providers.antigra
 
 O worktree do Paseo não isola o host: o agente continua com o usuário e o HOME do Felipe. O `--sandbox` só cobre o terminal; ferramentas nativas de arquivo, rede e chamadas MCP não foram comprovadas como restritas (o `ls ~/.ssh` bloqueado não prova isolamento geral). O changelog diz que, com o flag, leituras e escritas fora do workspace "go through without a prompt".
 
-## Decisão proposta
+## Decisão
 
-1. Não despachar o Antigravity pelo Paseo como rotina. Enquanto este ADR estiver Proposto, uso via Paseo só para tarefa de risco baixo, em repo sem segredos, em worktree novo (`--new-workspace worktree --base <branch>`), com revisão do diff pelo orquestrador. Nunca no checkout principal.
+1. Não despachar o Antigravity pelo Paseo como rotina. Uso via Paseo só para tarefa de risco baixo, em repo sem segredos, em worktree novo (`--new-workspace worktree --base <branch>`), com revisão do diff pelo orquestrador. Nunca no checkout principal.
 2. Nunca em projeto restrito (`config/ai-os-memory.toml`); ele não entra em `allowed_models` sem decisão explícita do Felipe.
 3. O override com `--sandbox` é obrigatório para esse uso (reduz o risco no terminal, não o elimina). Sem ele, não despachar.
 4. Preferir modelos `gemini-*`. Os modelos Claude oferecidos pelo `agy` rodariam com bypass de permissões, o que contraria a regra de nunca usar bypass no Claude.
-5. Para revisão e segunda opinião cross-family, preferir o `agy` direto, sem bypass: `agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` no diretório do repo. Teste de 09/11 em `MODELOS_2026.md`: respondeu sem pedir permissão e não escreveu no workspace.
+5. Para revisão e segunda opinião cross-family, usar o `agy` direto, somente leitura e sem bypass: `agy --mode plan --model gemini-4-argon-low -p "<pergunta>"` no diretório do repo. Teste de 09/11 em `MODELOS_2026.md`: respondeu sem pedir permissão e não escreveu no workspace.
 
 ## Consequências
 

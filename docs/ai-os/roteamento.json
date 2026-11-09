@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity: instalado e autenticado em 09/11/2026; no Paseo so existe o modo full-access (sem aprovacao), entao vale o rascunho ADR-0005: via Paseo so tarefa de risco baixo, repo sem segredos, worktree novo, override --sandbox ativo e revisao do diff, nunca em projeto restrito. Risco da tarefa (low/medium/high) e nivel de raciocinio do modelo (-low/-medium/-high) sao coisas distintas. Nao e API paga; DeepSeek Harness opcional.",
+  "nota": "Politica consultiva. NAO e config nativa do Paseo ou gateway. IDs reais de modelo sao verificados no host. Antigravity: instalado e autenticado em 09/11/2026; no Paseo so existe o modo full-access (sem aprovacao), entao vale o ADR-0005 (aceito em 09/11/2026): via Paseo so tarefa de risco baixo, repo sem segredos, worktree novo, override --sandbox ativo e revisao do diff, nunca em projeto restrito. Risco da tarefa (low/medium/high) e nivel de raciocinio do modelo (-low/-medium/-high) sao coisas distintas. GPT-6 Astra (Codex) so para risco alto sem executor mais barato que atinja o piso, com --thinking low/medium, uma tarefa por vez e franquia Codex 5h < 50% (uma revisao com thinking padrao gastou 27% da janela 5h). Revisoes de risco medio: Gemini 4 Argon via agy --mode plan, gpt-6.1-sol (thinking low/medium), gpt-6-luna se mecanica. Nao e API paga; DeepSeek Harness opcional.",
   "classes": {
     "high": [
       {
@@ -71,7 +71,7 @@
     "proibir_autoinstalacao_plugins_terceiros": true
   },
   "antigravity_modelos": {
-    "nota": "Custo relativo e usos sao hipoteses (Google nao publica pesos por modelo); medir com agy -p /usage antes e depois. Verificado em 09/11/2026: lista de modelos e pools de franquia. Sufixos -low/-medium/-high = nivel de raciocinio do modelo, independente do risco da tarefa; o limite de seguranca do ADR-0005 (proposto) vale para o risco da tarefa (so baixo via Paseo), nao para o sufixo (T1 usou gemini-3.8-flash-high em tarefa de risco baixo).",
+    "nota": "Custo relativo e usos sao hipoteses (Google nao publica pesos por modelo); medir com agy -p /usage antes e depois. Verificado em 09/11/2026: lista de modelos e pools de franquia. Sufixos -low/-medium/-high = nivel de raciocinio do modelo, independente do risco da tarefa; o limite de seguranca do ADR-0005 (aceito) vale para o risco da tarefa (so baixo via Paseo), nao para o sufixo (T1 usou gemini-3.8-flash-high em tarefa de risco baixo).",
     "pools": [
       "Gemini Models (5h e semanal)",
       "Claude and GPT models (5h e semanal)",
