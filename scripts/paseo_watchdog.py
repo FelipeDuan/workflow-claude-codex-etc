@@ -324,19 +324,21 @@ def refresh_quota(state: dict, now: datetime, dry_run: bool, log_path: Path) -> 
     if last is not None and timedelta(0) <= now - last < timedelta(minutes=QUOTA_INTERVAL_MIN):
         return
     if dry_run:
-        print("[dry-run] atualizaria a franquia: python3 scripts/quota_codex.py --write")
+        print("[dry-run] atualizaria a franquia: python3 scripts/quota_codex.py --write e python3 scripts/quota_antigravity.py --write")
         return
     state["quota_checked_at"] = _iso(now)
-    try:
-        result = subprocess.run(
-            ["python3", str(REPO_ROOT / "scripts" / "quota_codex.py"), "--write"],
-            capture_output=True, text=True, timeout=CMD_TIMEOUT + 10,
-        )
-        payload = parse_json(result.stdout)
-        if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
-            log_event(log_path, now, "quota_error", detalhe="sensor sem leitura válida")
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        log_event(log_path, now, "quota_error", detalhe="falha ao atualizar franquia")
+    sensors = ("quota_codex.py", "quota_antigravity.py")
+    for script_name in sensors:
+        try:
+            result = subprocess.run(
+                ["python3", str(REPO_ROOT / "scripts" / script_name), "--write"],
+                capture_output=True, text=True, timeout=CMD_TIMEOUT + 10,
+            )
+            payload = parse_json(result.stdout)
+            if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") != "ok":
+                log_event(log_path, now, "quota_error", detalhe=f"sensor {script_name} sem leitura válida")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            log_event(log_path, now, "quota_error", detalhe=f"falha ao atualizar franquia ({script_name})")
 
 
 def _within(path: Path, root: Path) -> bool:
