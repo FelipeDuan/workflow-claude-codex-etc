@@ -20,12 +20,19 @@ Formato do pré-registro: `docs/research/PROTOCOLO-GQM.md`, seção 7. Pergunta 
 
 Fidelidade por canal = soma dos pontos ÷ 12 fatos (e por faixa de idade, ÷ 4).
 
-Pontuação, fixada antes das consultas:
+Pontuação, fixada antes das consultas. Critérios operacionais, com um exemplo positivo e um negativo (do próprio experimento):
 
-- **1**: o fato aparece com seu identificador exato (ADR, incidente, hash, caminho) e a afirmação.
-- **0,5**: aparece a ideia sem o identificador, ou o identificador sem a afirmação do fato.
-- **0**: ausente. Citar um identificador só como instrução de leitura ("leia a ADR-0003") não conta.
-- **ERRADO**: contradiz a fonte. **DESATUALIZADO**: era verdade e foi superado. Marcados à parte, não descontam ponto.
+| Pontos | Critério | Exemplo positivo | Exemplo negativo |
+|---|---|---|---|
+| **1** | A saída contém a afirmação do fato **e** o identificador exato (ADR, incidente, hash, caminho). | Handoff com "I-23 (um Codex pesado por vez)": afirmação e id. | Handoff que diz "leia as decisões 0002 e 0003": o id aparece, a afirmação não. |
+| **0,5** | Só um dos dois, de forma inequívoca: a ideia sem o id, ou o id com o tópico mas sem a afirmação. | Handoff "tirar o agy de TODA automação" sem "ADR-0006": ideia sem id. | Título de sessão "conformidade do Antigravity": cita o assunto, não a decisão (vale 0). |
+| **0** | Nenhuma das duas, ou o id citado só como instrução de leitura, ou só o assunto geral. | Busca "ADR-0006 Antigravity fora automação" que devolve só o título da tarefa P0a. | (não se aplica) |
+
+Regras complementares:
+
+- **Fatos compostos** (mais de uma afirmação, como C2: v0.2.1 e I-35 e a correção do env): 1 exige todas as partes essenciais, marcadas por fato antes de consultar (C2: "v0.2.1" + "I-35" + "`ASTRO_DEV_BACKGROUND=0`" ou equivalente); parte delas vale 0,5; só o assunto vale 0. Para B1, a parte essencial é "21 servidores `astro dev` órfãos".
+- **Paráfrase:** vale se a afirmação equivalente está inequívoca (por exemplo "um Codex pesado por vez" ≡ "não rodar duas análises pesadas do Codex em paralelo"). O identificador exige o texto exato; sem ele, no máximo 0,5.
+- **Interação com ERRADO e DESATUALIZADO:** são marcações separadas. (a) Se a saída *só* traz uma versão errada ou superada do fato, o fato vale 0 e a ocorrência é marcada. (b) Se traz a versão atual e, além dela, uma superada, a pontuação fica e a superada é marcada. (c) Marcação não desconta ponto de outro fato. Nesta rodada só ocorreu (b) e casos em que a versão superada era a única e já valia 0, então nenhum total mudou por causa da regra.
 
 ## 3. Método
 
@@ -38,7 +45,7 @@ Pontuação, fixada antes das consultas:
   - **(d) STATUS+git**: d1 = `docs/ai-os/STATUS.md` + `git log --all`; d2 = d1 + `grep -rn` em `docs/ai-os/` (ADRs, `INCIDENTES.md`, `BASELINE`). Mantive as duas porque o I-23 vive no registro de incidentes e não no STATUS.
 - Critério de inclusão dos fatos: verdadeiro e verificável no git ou no STATUS, com fonte canônica anotada antes de consultar.
 - Regra de parada: um passe por canal e formulação, sem reformular depois de ver o resultado.
-- Plano de análise: tabelas por canal e por idade; hipótese confirmada se a evidência direta aponta para ela, refutada se contradiz, parcial se só parte do mecanismo se sustenta.
+- Plano de análise: tabelas por canal e por idade; cada hipótese é lida como "observada", "compatível", "em parte" ou "não testada de forma conclusiva", conforme a evidência direta e os fatores não controlados. Nenhuma é dada como confirmada ou refutada com n=12.
 
 ## 4. Conjunto de fatos
 
@@ -57,7 +64,7 @@ Idade = data do evento. Fontes: arquivos e commits deste repositório (nada de p
 | C1 | 09/11 | Antigravity fora da automação (ADR-0006, substitui a ADR-0005) | `decisions/0006-...`, STATUS "Frente: Antigravity", commit `8bf9992` |
 | C2 | 09/11 | v0.2.1 e incidente I-35; correção `ASTRO_DEV_BACKGROUND=0` | tag `v0.2.1` (`6fee611`), INCIDENTES I-35, commit `b9da4bc` |
 | C3 | 09/11 | Protocolo GQM em `docs/research/PROTOCOLO-GQM.md` | commit `45fee32`, STATUS "Publicado" |
-| C4 | 09/11 | Plugin claude-mem desabilitado | `~/.claude/settings.json` (`enabledPlugins`: `false`), INCIDENTES I-35 ("desativação do claude-mem") |
+| C4 | 09/11 | Plugin claude-mem desabilitado | configuração local do Claude Code (`enabledPlugins`: `false`), INCIDENTES I-35 ("desativação do claude-mem") |
 
 \* **Limitação da faixa B:** entre 27/10 e 08/11 o git não tem nenhum commit de trabalho (só o `wip` de 08/11) e o ai-memory deste projeto não registra sessão real de trabalho (as sessões com data de atualização em 05/11 começaram em 26/10 e foram só fechadas depois). Os fatos de B vêm de outros projetos ou foram documentados em 09/11. B4 está na borda (27/10) e entrou por falta de um quarto fato datável. Quem escolheu os 12 fatos já conhecia o STATUS.
 
@@ -104,13 +111,13 @@ União dos canais do ai-memory sem a formulação T (melhor de a, b-N1, b-N2, c 
 
 ## 6. Hipóteses
 
-| Hip. | Veredito | Evidência principal |
+| Hip. | Leitura | Evidência principal |
 |---|---|---|
-| H1 | **Confirmada** | O briefing tem contagens, `rules: []`, `slots: []`, 1 decisão fixada, 5 sessões recentes e 10 páginas recentes, cada uma com o prompt truncado em cerca de 80 caracteres. Ficou em 1,0/12 e só acertou por título ("v0.2.1 A1, processos órfãos"). `settled_first: true` apenas repete a mesma decisão única. |
-| H2 | **Confirmada em parte** | Em 26 handoffs, `next_steps` e `files_touched` vêm vazios (26/26). O texto são o prompt inicial (`open_questions`, "Continue from: ...") e, quando existe, a última resposta (`summary`). Totalizam cerca de 66,7 mil caracteres, no máximo 5 mil por handoff. Não há campo de decisão. Mesmo assim os handoffs foram o melhor canal do ai-memory (5,5/12), porque o orquestrador escreve a decisão dentro do prompt dos agentes ("I-23 (um Codex pesado por vez)", "I-35: 21 servidores astro dev"). A decisão só chega quando alguém a digitou no prompt. Não há handoff entre 27/10 e 08/11. |
-| H3 | **Confirmada** | 46 páginas atuais: 44 de sessão (resumo heurístico, sem LLM: título de 80 caracteres, contagem de chamadas de ferramenta, linha do tempo), 1 `decision` e 1 `lint-report`. Zero `rules`, `gotchas`, `procedures`. Nenhum dos 12 fatos tem página própria. A página de sessão que li por inteiro (P0a) não tem conteúdo de decisão; a consolidação por LLM está desligada. |
-| H4 | **Confirmada, com ressalva** | Perguntas naturais: 0/12 (N1) e 2/12 (N2). Os mesmos fatos com termos do documento: 6,5/12. Mecanismo observado: os termos vazios ("o", "de", "que", "os") não são descartados (aparecem destacados nos trechos) e a única página de decisão fica em 1º lugar em 23 das 24 consultas naturais, sem relação com o assunto. Ressalva: B3, B4, C1 e C2 continuam em 0 mesmo com os termos exatos, então vocabulário não explica tudo; o fato simplesmente não está no índice (nenhuma ocorrência de "ADR-0006" nos 26 handoffs nem nos trechos). |
-| H5 | **Refutada como causa principal** | Se o problema fosse captura tardia, os fatos de 09/11 estariam pior só por serem recentes e os antigos bem. O que aparece é outra coisa: A (antigos) vai a 4/4 na formulação T e C (recentes) a 0,5/4, mas porque as sessões antigas do Claude guardam trechos de saída de ferramenta que leram o STATUS, e as decisões de 09/11 foram tomadas na conversa do orquestrador, que não gerou página. As sessões de trabalho de 09/11 estão capturadas (570 observações em uma delas, com prompt e resposta final de cada turno). Parte do desenho continua frágil: n=1 original, fatos escolhidos por quem conhecia o STATUS. |
+| H1 | **Observada nesta rodada** (estado inventariado em 09/11) | O briefing tem contagens, `rules: []`, `slots: []`, 1 decisão fixada, 5 sessões recentes e 10 páginas recentes, cada uma com o prompt truncado em cerca de 80 caracteres. Ficou em 1,0/12 e só acertou por título ("v0.2.1 A1, processos órfãos"). `settled_first: true` apenas repete a mesma decisão única. |
+| H2 | **Observada em parte nesta rodada** (estado inventariado em 09/11) | Em 26 handoffs, `next_steps` e `files_touched` vêm vazios (26/26). O texto são o prompt inicial (`open_questions`, "Continue from: ...") e, quando existe, a última resposta (`summary`). Totalizam cerca de 66,7 mil caracteres, no máximo 5 mil por handoff. Não há campo de decisão. Mesmo assim os handoffs foram o melhor canal do ai-memory (5,5/12), porque o orquestrador escreve a decisão dentro do prompt dos agentes ("I-23 (um Codex pesado por vez)", "I-35: 21 servidores astro dev"). A decisão só chega quando alguém a digitou no prompt. Não há handoff entre 27/10 e 08/11. |
+| H3 | **Observada nesta rodada** (estado inventariado em 09/11) | 46 páginas atuais: 44 de sessão (resumo heurístico, sem LLM: título de 80 caracteres, contagem de chamadas de ferramenta, linha do tempo), 1 `decision` e 1 `lint-report`. Zero `rules`, `gotchas`, `procedures`. Nenhum dos 12 fatos tem página própria. A página de sessão que li por inteiro (P0a) não tem conteúdo de decisão; a consolidação por LLM está desligada. |
+| H4 | **Compatível com influência de vocabulário nesta amostra** (não isolada) | Perguntas naturais: 0/12 (N1) e 2/12 (N2); termos do documento: 6,5/12. Três fatores variam juntos e não foram separados: (1) a **formulação** (termos vazios como "o", "de", "que" não são descartados, aparecem destacados nos trechos, e a única página de decisão ficou em 1º lugar em 23 das 24 consultas naturais, sem relação com o assunto); (2) a **cobertura do índice** (B3, B4, C1 e C2 ficam em 0 mesmo com os termos exatos, e não há "ADR-0006" nos 26 handoffs nem nos trechos devolvidos, o que sugere que esses fatos não estão no índice, ou não foram alcançados); (3) o **limite de resultados** (`limit: 3` em todas as buscas, então um acerto no 4º lugar não foi visto). Sem variar um fator por vez (por exemplo, T com `limit: 10`, ou N com os termos vazios removidos à mão) não dá para atribuir a diferença N × T só ao vocabulário. |
+| H5 | **Não testada de forma conclusiva** (explicação concorrente) | O desenho não controla idade nem momento de captura: cada fato tem uma idade, mas também um tipo, uma fonte e uma origem (sessão de worker ou conversa do orquestrador) diferentes. O que se viu é compatível com uma explicação concorrente, sem teste: os fatos antigos (A) foram melhor na formulação T (4/4 contra 0,5/4 em C), possivelmente porque sessões antigas do Claude guardam saídas de ferramenta que leram o STATUS, e as decisões de 09/11 foram tomadas na conversa do orquestrador, que não gerou página. As sessões de trabalho de 09/11 estão capturadas (570 observações em uma delas, com prompt e resposta final por turno), o que contraria uma captura tardia como causa única, mas não a exclui para outros fatos. Para testar: controlar idade e captura (secção 8, passo 5). |
 
 Observações adicionais: sessões com `ended: false` (inclusive a atual) aparecem no briefing, mas ainda não têm página, só observações brutas (`memory_read_session_observations` as lê, e traz prompt e resposta final por turno). O passo "retomar sem ler STATUS/git" do protocolo de `MEMORIA-E-CONTEXTO` ainda não foi medido com esse caminho.
 
@@ -118,18 +125,18 @@ Observações adicionais: sessões com `ended: false` (inclusive a atual) aparec
 
 - **n pequeno:** 12 fatos, uma rodada, um repositório. Diferenças de 0,5 ponto não significam nada. O placar serve para ordenar causas, não para medir.
 - **Avaliador = mesmo agente que consultou:** a pontuação (1/0,5/0) tem julgamento, e o limite entre 0 e 0,5 em títulos de sessão pode mudar o total em 1 a 2 pontos. Uma segunda pessoa ou outro modelo deveria pontuar as mesmas saídas.
-- **Fatos escolhidos por quem conhece o STATUS:** favorece o canal d. d2 = 12/12 é quase tautológico, porque os fatos foram buscados lá.
+- **Viés de seleção:** os 12 fatos foram tirados do STATUS, do git e dos documentos do próprio repositório. Logo, d1 e d2 medem a cobertura da fonte de onde os fatos vieram, não a capacidade de retomada; a comparação com os canais do ai-memory não é balanceada, e d2 = 12/12 é quase tautológico. Para a próxima rodada: amostrar fatos de **fontes e tipos variados** (por exemplo, decisão tomada só em conversa, estado de git, achado técnico, próximo passo, fato registrado só em ferramenta externa), **escolhidos e registrados antes** de qualquer consulta, por alguém que não vai consultar, e com **consultas cegas** (quem formula a consulta não vê a fonte nem a resposta esperada).
 - **Termos T vêm do documento:** na vida real, quem retoma não sabe que existe "I-23". A coluna T mede o teto do índice, não o uso realista.
 - **Faixa B sem cobertura:** só 3 fatos datam de 02-08/11 de verdade; B4 foi puxado de 27/10. A comparação por idade entre B e as outras faixas é fraca.
 - **Mudança do estado durante o teste:** o número de observações subiu de 6.193 para 6.364 enquanto eu consultava; o conjunto de páginas e handoffs não mudou.
 - **Régua diferente da rodada de 09/11:** a rodada original usava 6 fatos e marcava parcial quando faltava o identificador. Aqui o identificador sem a afirmação também vale 0,5. Os totais (0/6 antes, 5,5 a 8,0/12 agora) não são comparáveis diretamente. A diferença vem principalmente da escolha dos fatos (aqui entram I-23 e I-35, que estão em prompts de agentes).
-- **Fonte de C4 fora do git:** `~/.claude/settings.json` não é versionado.
+- **Fonte de C4 fora do git:** a configuração local do Claude Code não é versionada, então esse fato não é verificável pelo git.
 
-## 8. Recomendação (barata, só recomendação; nada foi gravado)
+## 8. Intervenções candidatas (baratas; nada foi gravado nem aplicado)
 
-**Diagnóstico em uma frase:** o ai-memory guarda o que os agentes de trabalho receberam e responderam; as decisões do orquestrador (ADR, incidente, regra) não entram, e a busca por pergunta natural é derrubada por termos vazios. Páginas duráveis resolvem as duas coisas.
+**Leitura provisória, ainda por testar:** nesta amostra, o ai-memory guarda o que os agentes de trabalho receberam e responderam; as decisões do orquestrador (ADR, incidente, regra) aparecem pouco, e a busca por pergunta natural convive com termos vazios. As intervenções abaixo são candidatas para testar essas leituras, não correções comprovadas. Cada uma entra com desenho antes/depois: **mesmo conjunto de fatos, consultas cegas (formuladas sem ver a fonte), avaliador independente, relatório por fato e por canal** (nunca só o total).
 
-**1. Gravar 5 páginas duráveis curtas** (tipo `decision` ou `gotcha`, uma por fato, até 15 linhas), usando a skill `ai-memory-durable-pages`, depois de Felipe aprovar o texto. Cada página: decisão, motivo, data, fonte canônica (arquivo e commit), "substitui/substituída por", e uma linha com sinônimos em linguagem natural (para o índice lexical).
+**1. Candidata: gravar 5 páginas duráveis curtas** (tipo `decision` ou `gotcha`, uma por fato, até 15 linhas), usando a skill `ai-memory-durable-pages`, depois de Felipe aprovar o texto. Cada página: decisão, motivo, data, fonte canônica (arquivo e commit), "substitui/substituída por", e uma linha com sinônimos em linguagem natural (para o índice lexical).
 
 | # | Caminho | Título (com termos) | Termos a incluir |
 |---|---|---|---|
@@ -141,21 +148,27 @@ Observações adicionais: sessões com `ended: false` (inclusive a atual) aparec
 
 Por que esses cinco: são as decisões vigentes que os agentes erram se não souberem, estão em faixas de idade diferentes e aparecem em 0 ou 0,5 nos canais do ai-memory. Ficam de fora o GQM, o claude-mem e a migração do Mac: o primeiro já está em arquivo versionado fácil de achar, e os outros dois mudam rápido.
 
-**2. Hook de handoff:** não alterar agora. Registrar decisões no hook exigiria um classificador do que é decisão, que é justamente o trabalho que a consolidação por LLM faria (desligada por decisão da ADR-0004). Alternativa de custo zero: tornar o passo "uma página durável por decisão nova" parte do encerramento da skill `sessao`, e tirar a decisão do prompt dos agentes para o próprio texto da página. Reavaliar o hook depois de 2 rodadas deste experimento com as páginas gravadas.
+**2. Candidata, adiada: hook de handoff.** Não alterar agora. Registrar decisões no hook exigiria um classificador do que é decisão, que é justamente o trabalho que a consolidação por LLM faria (desligada por decisão da ADR-0004). Alternativa de custo zero: tornar o passo "uma página durável por decisão nova" parte do encerramento da skill `sessao`, e tirar a decisão do prompt dos agentes para o próprio texto da página. Reavaliar o hook depois de 2 rodadas deste experimento com as páginas gravadas.
 
-**3. Regra de uso da busca** (uma linha no `AGENTS.md`, a decidir): consultar o ai-memory por palavras-chave e identificadores ("ADR-0003 Paseo"), não por pergunta; para retomar, ler primeiro `STATUS.md` e `git log --all`, e usar o ai-memory como complemento. Para sessão cortada, usar `memory_read_session_observations` (ordem `desc`) antes dos handoffs.
+**3. Candidata: regra de uso da busca** (uma linha no `AGENTS.md`, a decidir): consultar o ai-memory por palavras-chave e identificadores ("ADR-0003 Paseo"), não por pergunta; para retomar, ler primeiro `STATUS.md` e `git log --all`, e usar o ai-memory como complemento. Para sessão cortada, usar `memory_read_session_observations` (ordem `desc`) antes dos handoffs.
 
-**4. Limpar o que induz erro** (decisão do Felipe): cancelar os handoffs que citam a ADR-0005 como vigente (2 dos 26) depois de revisar cada um; hoje eles servem de fonte DESATUALIZADA.
+**4. Candidata: limpar o que induz erro** (decisão do Felipe): cancelar os handoffs que citam a ADR-0005 como vigente (2 dos 26) depois de revisar cada um; hoje eles servem de fonte DESATUALIZADA.
 
-**5. Reaplicar:** repetir este mesmo conjunto de 12 fatos depois do passo 1, com uma segunda pessoa pontuando, e acrescentar fatos da faixa 02-08/11 quando existirem. Meta de sucesso a registrar antes: formulação N2 ≥ 8/12 e nenhum DESATUALIZADO sem marca de "substituída".
+**5. Desenho antes/depois (vale para as candidatas 1 a 4).**
+
+- **Antes:** este conjunto de 12 fatos, com os resultados da secção 5 como linha de base.
+- **Intervenção:** aplicar uma candidata por vez (ou registrar quais foram juntas), sem mudar o conjunto.
+- **Depois:** repetir as mesmas consultas N1, N2 e T, e acrescentar uma variante T com `limit: 10` e outra N com termos vazios removidos, para separar formulação, cobertura e limite (H4).
+- **Controles:** fatos novos de fontes e tipos variados, escolhidos antes e por quem não consulta; consultas cegas; avaliador independente (outra pessoa ou outro modelo) que pontua as saídas gravadas; idade e captura registradas por fato (H5).
+- **Critério operacional provisório:** formulação N2 ≥ 8/12 e nenhum DESATUALIZADO sem marca de "substituída". Justificativa: o ganho mínimo de interesse é de ~6 pontos sobre os 2,0/12 de N2 hoje, o que aproxima a busca natural de T (6,5/12) e supera o ruído de 1 a 2 pontos estimado para a pontuação com avaliador único (secção 7). É um limiar provisório, escolhido por julgamento e não por cálculo de poder estatístico; deve ser revisto antes da rodada "depois". O relatório traz sempre os pontos por fato e por canal, para que nenhum total esconda um fato que piorou.
 
 **O que não fazer:**
 
 - Não ligar a consolidação por LLM nem o `auto_improve` só para resolver isso antes de testar as páginas manuais; custa franquia e a ADR-0004 desligou de propósito.
 - Não copiar o STATUS inteiro para o ai-memory: duplica, envelhece e já rende 12/12 pelo canal d2.
-- Não tratar o briefing como fonte de retomada: ele não foi feito para isso (H1).
+- Não tratar o briefing como fonte de retomada: nesta rodada ele só trouxe contagens e títulos truncados (H1).
 - Não escrever "estado atual" como página durável; estado muda por hora, vale o STATUS.
-- Não confiar em pergunta natural nem na primeira página devolvida (H4).
+- Não confiar em pergunta natural nem na primeira página devolvida: nesta amostra, a primeira foi quase sempre a mesma página de decisão (H4).
 - Não aposentar o ai-memory nem o claude-mem com base neste n=1.
 
 ## Apêndice A: consultas exatas
