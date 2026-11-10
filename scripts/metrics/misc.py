@@ -5,6 +5,7 @@ Co-Authored-By. Só o snapshot privado separado guarda SHA e patch-id;
 mensagens e autores não são gravados.
 """
 import collections
+import datetime
 import glob
 import json
 import os
@@ -55,6 +56,14 @@ def find_roots(workspace, depth=3):
     return roots
 
 
+def since_arg(ctx, since):
+    """'AAAA-MM-DD' vira meia-noite no fuso do ctx. O git completa data sem hora com a
+    hora atual do relógio, e --since=2026-10-22 rodado às 13h descartava os commits de 22/10 até 13h."""
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', since):
+        return since + 'T00:00:00' + datetime.datetime.fromisoformat(since).replace(tzinfo=ctx.tz).strftime('%z')
+    return since
+
+
 def commits(ctx, since, runner=None, dedup='patch-id', snapshot=None):
     """Deduplica por SHA e pelo conteúdo estável do patch dentro de cada repo."""
     if dedup not in ('patch-id', 'sha'):
@@ -71,6 +80,7 @@ def commits(ctx, since, runner=None, dedup='patch-id', snapshot=None):
     until = ctx.until.isoformat()
     if dedup == 'patch-id':
         since = min(since, *(a for a, _ in ctx.periods.values()))
+    since = since_arg(ctx, since)
     candidates = []
     patch_id_failures = 0
     fallback_sha_count = 0

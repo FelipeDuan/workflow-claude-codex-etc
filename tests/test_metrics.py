@@ -240,6 +240,24 @@ class MiscTests(unittest.TestCase):
             self.assertNotIn(original, json.dumps(out))
             self.assertNotIn(str(home), json.dumps(snapshot))
 
+    def test_since_so_com_data_nao_usa_hora_do_relogio(self):
+        # Regressão: git completa --since=AAAA-MM-DD com a hora atual; commit de 00h30 (-03) sumia.
+        self.assertEqual(misc.since_arg(ctx_for(Path('.')), '2026-10-22'), '2026-10-22T00:00:00-0300')
+        self.assertEqual(misc.since_arg(ctx_for(Path('.')), '2026-10-22T05:00:00Z'), '2026-10-22T05:00:00Z')
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            repo = home / 'Workspace' / 'publico'
+            repo.mkdir(parents=True)
+            env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1',
+                       GIT_AUTHOR_DATE='2026-10-22T03:30:00Z', GIT_COMMITTER_DATE='2026-10-22T03:30:00Z')
+            for args in (['init'], ['commit', '--allow-empty', '-m', 'cedo']):
+                subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Teste', '-c', 'user.email=t@example.invalid',
+                                '-c', 'core.hooksPath=/dev/null', *args], env=env, check=True, capture_output=True)
+            for dedup in ('sha', 'patch-id'):
+                with self.subTest(dedup=dedup):
+                    out = misc.commits(ctx_for(home), '2026-10-22', dedup=dedup)
+                    self.assertEqual(out['por_periodo']['S1']['total'], 1)
+
     def test_patch_id_falha_recorre_a_sha(self):
         with tempfile.TemporaryDirectory() as d:
             home = Path(d)
