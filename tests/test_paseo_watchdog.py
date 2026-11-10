@@ -111,6 +111,9 @@ class WatchdogTests(unittest.TestCase):
         self.process_patch = patch.object(watchdog, 'scan_processes', return_value=([], 0, None))
         self.process_patch.start()
         self.addCleanup(self.process_patch.stop)
+        self.hygiene_patch = patch.object(watchdog, 'scheduled_hygiene_scan')
+        self.hygiene_patch.start()
+        self.addCleanup(self.hygiene_patch.stop)
 
     # ---------------------------------------------------------------- fixtures
 

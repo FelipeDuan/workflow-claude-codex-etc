@@ -117,6 +117,25 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(leftover[0]['task_id'], tid)
         self.assertEqual(leftover[0]['pids'], [candidate_pid, residual_pid])
 
+    def test_close_detalha_so_orfaos_e_residuos(self):
+        tid = self.call('open', 'Fechar com resumo')
+        self.call('link', tid, 'agent-1')
+        rows = [{'pid': index + 100, 'class': klass, 'command': 'node', 'rss_bytes': 10,
+                 'why': ['motivo'], 'display_worktree': 'worktree', 'suggested_commands': ['sugestao']}
+                for index, klass in enumerate(('ORFAO_CANDIDATO', 'RESIDUO_AGENTE', 'PRESERVAR', 'DESCONHECIDO'))]
+        warning = io.StringIO()
+        with patch.object(task, 'leftover_processes', return_value=(rows, 1, None)), \
+                contextlib.redirect_stderr(warning):
+            self.call('close', tid, 'aceito')
+        text = warning.getvalue()
+        self.assertIn('pid 100', text)
+        self.assertIn('pid 101', text)
+        self.assertNotIn('pid 102', text)
+        self.assertNotIn('pid 103', text)
+        self.assertIn('2 processos preservados/desconhecidos', text)
+        self.assertIn('PRESERVAR: 1', text)
+        self.assertIn('DESCONHECIDO: 1', text)
+
     def test_invalid_transitions_and_reopen(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             self.call('close', 'T-20261109-01', 'aceito')

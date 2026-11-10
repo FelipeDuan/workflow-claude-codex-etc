@@ -16,6 +16,9 @@
 
 version = 1
 
+# Inventário de recursos a cada 6 h; 0 desliga. Cada tentativa tem timeout de 120 s.
+hygiene_scan_hours = 6
+
 # Lembrete de uma condição contínua, em minutos; ausente ou 0 não repete aviso.
 # reminder_min = 10
 

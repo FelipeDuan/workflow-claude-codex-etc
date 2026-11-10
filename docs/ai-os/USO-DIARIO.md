@@ -164,7 +164,7 @@ Uma sessão por objetivo. O chat é descartável; o estado fica no STATUS, nos A
 
 ## Higiene em modo diagnóstico (scan e plano)
 
-`scripts/hygiene.py` só lê e imprime. Ele **nunca** apaga, move, poda, mata processo, descarrega launchd nem roda `git gc/prune/worktree remove` ou `paseo delete`. A v1 não tem `--apply`.
+`scripts/hygiene.py` só lê e imprime. Ele só remove saídas antigas identificadas da própria ferramenta no diretório canônico de higiene; **nunca** move, poda, mata processo, descarrega launchd nem roda `git gc/prune/worktree remove` ou `paseo delete`. A v1 não tem `--apply`.
 
 ```sh
 python3 scripts/hygiene.py scan                  # JSON em ~/.local/state/ai-os/higiene/scan-AAAAMMDD-HHMM.json (modo 600)
@@ -203,3 +203,13 @@ Veja `INCIDENTES.md`: cada problema conhecido tem um contorno. Se for novo, regi
 `python3 scripts/hygiene.py scan` registra processos do usuário com diretório atual dentro das worktrees do Paseo e worktrees Git escaneadas. `python3 scripts/hygiene.py plan` marca `ORFAO_CANDIDATO` quando o processo tem `ppid=1`, o agente está fechado/inativo ou não existe, não há conexão TCP estabelecida e a idade passa de 6 horas. Use `python3 scripts/hygiene.py plan --orphan-hours N` para ajustar esse limite.
 
 O plano só sugere comandos. Se o PID do lock Astro (`.astro/dev.json` ou `.astro/preview.json`) corresponder, sugere `astro dev stop` ou `astro preview stop`. Nos demais casos, o comando confere o horário de início antes de enviar `TERM`. Revise o worktree e o processo antes de executar qualquer sugestão. Nenhum processo é encerrado automaticamente.
+
+## Memória, swap e custo do coletor (Q5)
+
+`python3 scripts/metrics/report.py` publica na Q5 o scan mais recente dentro da janela: timestamp, swap alocado/usado, pressão, percentual livre, componentes com maior footprint, órfãos e resíduos de agentes, disco livre e custo do scan. Os tempos diários do vigia continuam ao lado. Use `--hygiene-scan <arquivo>` para escolher uma amostra dentro da janela. Sem amostra, o relatório mostra `unknown` e o motivo.
+
+O footprint vem de uma única chamada ao `top` e inclui páginas compartilhadas e comprimidas: a soma por componente **não é memória exclusiva**. Sessões Claude Code na CLI incluem seus processos filhos; o app Claude aparece em outros apps. Se um PID do `ps` não aparecer no `top`, a soma dos demais continua disponível com `partial`, `missing_count` e status `estimated` no relatório. O próprio coletor e seus filhos ficam fora da soma. Para avaliar pressão no Mac, acompanhe swap e pressão ao longo do tempo; uma amostra isolada não mostra se o problema é sustentado.
+
+O vigia existente inicia um scan em segundo plano a cada 6 horas e continua seu ciclo sem esperar o inventário. Os ciclos seguintes supervisionam o mesmo PID e registram `collector.hygiene_scan` com a duração real do filho, separada do custo diário do vigia. O coletor tem prazo próprio de 120 segundos; o vigia só pode interromper esse filho após conferir PID e horário de início. Sem identidade confirmada, preserva o vínculo e bloqueia outro scan.
+
+Em `config/paseo-watchdog-policy.toml`, ajuste `hygiene_scan_hours`; `0` desliga novos scans, mantendo a supervisão de um scan em andamento. O scan manual continua disponível. A rotação mantém até 28 scans e 28 planos identificados como gerados pela ferramenta no diretório de higiene do estado configurado (`AI_OS_STATE_DIR`, quando definido). Outros arquivos e links são preservados; uma falha ao apagar saída antiga é avisada e não invalida o scan.

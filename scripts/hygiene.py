@@ -7,7 +7,7 @@ Subcomandos:
                                       plano em Markdown: PRESERVAR / CANDIDATO /
                                       DESCONHECIDO para cada recurso
 
-REGRA: esta ferramenta nunca apaga, move, poda, mata processo, descarrega
+REGRA: só rotaciona suas saídas antigas no diretório higiene; nunca move, poda, mata processo, descarrega
 launchd nem roda git gc/prune/worktree remove/paseo delete. Ela só lê e
 imprime. Os comandos que aparecem no plano são sugestões para o Felipe rodar
 à mão, depois de conferir.
@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,10 @@ PRESERVAR, CANDIDATO, DESCONHECIDO = "PRESERVAR", "CANDIDATO", "DESCONHECIDO"
 
 class HygieneError(Exception):
     pass
+
+
+class ScanInterrupted(BaseException):
+    """Interrupção que não pode ser absorvida por leituras opcionais do scan."""
 
 
 # ------------------------------------------------------------------ utilidades
@@ -122,28 +127,192 @@ def dir_sizes(home: Path, state_dir: Path) -> dict:
     }
 
 
-def memory_info() -> dict:
-    info = {"pressure_level": None, "free_percentage": None, "swap_total_bytes": None, "swap_used_bytes": None}
+def _memory_read(command: list[str]) -> tuple[str | None, str | None]:
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10,
+                                env={**os.environ, "LC_ALL": "C"})
+        if result.returncode == 0:
+            return result.stdout, None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None, f"{Path(command[0]).name} indisponível"
 
-    def run(cmd):
-        try:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
 
-    m = re.search(r"free percentage:\s*(\d+)%", run(["memory_pressure", "-Q"]))
-    if m:
-        info["free_percentage"] = int(m.group(1))
-    m = re.search(r":\s*(\d+)", run(["sysctl", "kern.memorystatus_vm_pressure_level"]))
-    if m:
-        info["pressure_level"] = {1: "normal", 2: "aviso", 4: "critica"}.get(int(m.group(1)), "desconhecida")
-    swap = run(["sysctl", "vm.swapusage"])
-    units = {"M": 1 << 20, "G": 1 << 30, "K": 1 << 10}
+def _bytes(value: str) -> int | None:
+    match = re.fullmatch(r"(\d+(?:[.,]\d+)?)([BKMGTP]?)[B]?[*+~-]?", value.strip(), re.I)
+    if not match:
+        return None
+    try:
+        return int(float(match[1].replace(",", ".")) * 1024 ** "BKMGTP".index(match[2].upper() or "B"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def collect_top(snapshot: dict) -> None:
+    """Captura top imediatamente após ps, antes das leituras mais demoradas."""
+    started = time.perf_counter()
+    snapshot["top"] = _memory_read(["top", "-l", "1", "-o", "mem", "-stats", "pid,command,mem"])
+    snapshot["top_ms"] = (time.perf_counter() - started) * 1000
+
+
+def memory_info(snapshot: dict | None = None, processes: list[dict] = (), home: Path | None = None) -> dict:
+    """Uma amostra de footprint; somas incluem memória compartilhada/comprimida."""
+    started = time.perf_counter()
+    info = {"pressure_level": None, "pressure_level_code": None, "free_percentage": None, "swap_total_bytes": None,
+            "swap_used_bytes": None, "components": None, "reason": {}}
+    def missing(field, reason):
+        info["reason"][field] = reason
+    output, error = _memory_read(["memory_pressure", "-Q"])
+    match = re.search(r"free percentage:\s*(\d+)%", output or "", re.I)
+    if match and 0 <= int(match[1]) <= 100:
+        info["free_percentage"] = int(match[1])
+    else:
+        missing("free_percentage", error or "percentual livre inválido")
+    output, error = _memory_read(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"])
+    match = re.search(r"(?:^|:\s*)([124])\s*$", output or "")
+    if match:
+        info["pressure_level_code"] = int(match[1])
+        info["pressure_level"] = {1: "normal", 2: "aviso", 4: "critica"}[int(match[1])]
+    else:
+        missing("pressure_level", error or "nível de pressão inválido")
+        missing("pressure_level_code", error or "nível de pressão inválido")
+    output, error = _memory_read(["sysctl", "vm.swapusage"])
     for key, name in (("swap_total_bytes", "total"), ("swap_used_bytes", "used")):
-        m = re.search(name + r"\s*=\s*([\d.,]+)([KMG])", swap)
-        if m:
-            info[key] = int(float(m.group(1).replace(",", ".")) * units[m.group(2)])
+        match = re.search(name + r"\s*=\s*(\S+)", output or "", re.I)
+        info[key] = _bytes(match[1]) if match else None
+        if info[key] is None:
+            missing(key, error or "leitura de swap inválida")
+    if snapshot is not None and "top" in snapshot:
+        output, error = snapshot["top"]
+    else:
+        output, error = _memory_read(["top", "-l", "1", "-o", "mem", "-stats", "pid,command,mem"])
+    footprints = {}
+    for line in (output or "").splitlines():
+        match = re.match(r"^\s*(\d+)\s+.+?\s+(\S+)\s*$", line)
+        if match:
+            value = _bytes(match[2])
+            if value is not None:
+                footprints[int(match[1])] = value
+    rows = (snapshot or {}).get("rows", {})
+    reason = error or ("top sem footprints válidos" if not footprints else None) or (snapshot or {}).get("reason")
+    if not rows:
+        reason = reason or "snapshot ps indisponível"
+    if reason:
+        missing("components", reason)
+    else:
+        home = home or Path.home()
+        cwds = snapshot.get("cwds", {})
+        classes = {row["pid"]: classify_process(row)[0] for row in processes}
+        groups = {}
+        excluded = (snapshot or {}).get("exclude_tree_pid", os.getpid())
+        from process_scan import _ancestor_pids
+        for pid, row in rows.items():
+            if excluded in _ancestor_pids(rows, pid):
+                continue
+            component = _memory_component(pid, rows, cwds, classes, home)
+            group = groups.setdefault(component, {"component": component, "process_count": 0,
+                                                 "footprint_bytes": 0, "missing_count": 0, "partial": False, "reason": None})
+            group["process_count"] += 1
+            value = footprints.get(pid)
+            if value is None:
+                group["missing_count"] += 1
+                group["partial"] = True
+                group["reason"] = "footprint parcial: processo do ps ausente ou inválido no top"
+            else:
+                group["footprint_bytes"] += value
+        for group in groups.values():
+            if group["missing_count"] == group["process_count"]:
+                group["footprint_bytes"] = None
+        info["components"] = sorted(groups.values(), key=lambda row: -(row["footprint_bytes"] or 0))
+    for row in processes:
+        row["footprint_bytes"] = footprints.get(row["pid"]) if error is None else None
+        row["footprint_reason"] = None if row["footprint_bytes"] is not None else error or "processo ausente ou inválido no top"
+    info["collection_ms"] = round((time.perf_counter() - started) * 1000 + (snapshot or {}).get("top_ms", 0), 3)
     return info
+
+
+def _process_identity(command: str) -> str:
+    """Executável e script conhecido; argumentos livres não definem componente."""
+    raw = command
+    app = re.match(r"(.+?\.app/Contents/\S+)", raw)
+    tokens = raw.split()
+    executable = app[1] if app else (tokens[0] if tokens else "")
+    if Path(executable).name in {"node", "python", "python3", "uv", "uvx", "npx"}:
+        if len(tokens) > 1 and not tokens[1].startswith("-"):
+            executable += " " + tokens[1]
+    return executable
+
+
+def _memory_component(pid: int, rows: dict, cwds: dict, classes: dict, home: Path) -> str:
+    chain, seen = [], set()
+    current = pid
+    while current in rows and current not in seen:
+        seen.add(current)
+        chain.append(current)
+        current = rows[current]["ppid"]
+    if any(classes.get(p) == "ORFAO_CANDIDATO" for p in chain):
+        return "servidores órfãos"
+    # Uma sessão CLI possui seus filhos; o aplicativo Claude é contado como app.
+    native_claude = str(home / ".local/share/claude/versions") + "/"
+    for p in chain:
+        identity = _process_identity(rows[p].get("raw_command", ""))
+        tokens = identity.split()
+        binary = tokens[0] if tokens else ""
+        if ".app/" not in identity and (
+                Path(binary).name == "claude" or binary.startswith(native_claude)
+                or "/node_modules/@anthropic-ai/claude-code/" in binary
+                or (Path(binary).name == "node" and len(tokens) > 1
+                    and "/node_modules/@anthropic-ai/claude-code/" in tokens[1])):
+            return "sessões Claude Code com filhos"
+    worktrees = str(home / ".paseo" / "worktrees")
+    for p in chain:
+        command = _process_identity(rows[p].get("raw_command", ""))
+        if worktrees + "/" in command or str(cwds.get(p, "")).startswith(worktrees + "/"):
+            return "processos de worktrees de agentes"
+    bundles = {"orbstack": ("orbstack", "OrbStack"), "paseo": ("paseo", "Paseo (app+daemon)"),
+               "codex": ("codex", "Codex"), "opencode": ("opencode", "OpenCode")}
+    browsers = {"google chrome": "google chrome", "safari": "safari", "firefox": "firefox",
+                "brave browser": "brave browser", "microsoft edge": "microsoft edge",
+                "arc": "arc", "zen": "zen", "zen browser": "zen"}
+    binaries = {"orb": "OrbStack", "orbstack": "OrbStack", "paseo": "Paseo (app+daemon)",
+                "paseo-daemon": "Paseo (app+daemon)", "codex": "Codex", "opencode": "OpenCode",
+                "ai-memory": "ai-memory", "ai_memory": "ai-memory", "playwright": "playwright MCP"}
+    apps = []
+    for p in chain:
+        raw = rows[p].get("raw_command", "")
+        identity = _process_identity(raw)
+        app = re.match(r"^.+?/([^/]+)\.app/Contents/MacOS/(.+)$", raw)
+        if app:
+            name = app[1]
+            apps.append(name)
+            executable = app[2].lower()
+            expected, label = bundles.get(name.lower(), (None, None))
+            if expected and (executable == expected or executable.startswith(expected + " ")):
+                return label
+            expected = browsers.get(name.lower())
+            if expected and (executable == expected or executable.startswith(expected + " ")):
+                return "navegador"
+            continue
+        if ".app/" in identity:
+            app = re.search(r"/([^/]+)\.app/", identity)
+            if app:
+                apps.append(app[1])
+            continue
+        tokens = identity.split()
+        binary = Path(tokens[0]).name.lower() if tokens else ""
+        if binary in binaries:
+            return binaries[binary]
+        if binary in {"safari", "firefox", "chrome", "chromium", "zen"}:
+            return "navegador"
+        if len(tokens) > 1 and binary in {"node", "python", "python3", "uv", "uvx", "npx"}:
+            script = tokens[1]
+            if "/playwright/" in script or "/@playwright/mcp/" in script or script == "@playwright/mcp":
+                return "playwright MCP"
+            if Path(script).name in {"ai-memory", "ai_memory"} or "/ai-memory/" in script:
+                return "ai-memory"
+    if apps:
+        return "outros apps: " + wd._clean(apps[0], 60)
+    return "outros processos"
 
 
 def launchctl_list() -> list[dict]:
@@ -383,7 +552,8 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
         else:
             item["display_path"] = item["path"]
     mask_restricted(items, agents, restricted_roots)
-    processes, process_scan_ms, process_error = scan_processes(process_roots)
+    snapshot = {}
+    processes, process_scan_ms, process_error = scan_processes(process_roots, snapshot=snapshot, after_ps=collect_top, exclude_tree_pid=os.getpid())
     by_root = {os.path.realpath(item["raw_path"]): item for item in process_roots}
     agent_by_root = {}
     for agent in agents:
@@ -433,7 +603,12 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
         process.pop("cwd", None)
     sizes = dir_sizes(home, state_dir)
     sizes["worktrees_escaneadas"] = sum(i["size_bytes"] or 0 for i in items if not i["is_main"])
-    usage = shutil.disk_usage(home)
+    try:
+        usage = shutil.disk_usage(home)
+        disk = {"total_bytes": usage.total, "free_bytes": usage.free, "reason": None}
+    except OSError:
+        disk = {"total_bytes": None, "free_bytes": None, "reason": "leitura de disco indisponível"}
+    memory = memory_info(snapshot, processes, home)
     return {
         "version": SCHEMA_VERSION,
         "generated_at": wd._iso(now),
@@ -444,8 +619,10 @@ def build_scan(repo: str, home: Path, state_dir: Path, restricted_roots: list[Pa
         "processes": {"items": processes, "scan_ms": process_scan_ms, "error": process_error},
         "launchd": launchctl_list(),
         "sizes_bytes": sizes,
-        "disk": {"total_bytes": usage.total, "free_bytes": usage.free},
-        "memory": memory_info(),
+        "disk": disk,
+        "memory": memory,
+        "scan_ms": round((time.monotonic() - started) * 1000, 3),
+        "source": "hygiene",
         "scan_seconds": round(time.monotonic() - started, 2),
     }
 
@@ -460,7 +637,7 @@ AGENT_SCHEMA = {"id": "str", "provider": "str", "status": "str", "age_days": "nu
                 "restricted": "bool", "worktree": "str?"}
 TOP_SCHEMA = {"generated_at": "str", "paseo_ok": "bool", "worktrees": "list", "agents": "list", "launchd": "list",
               "disk": "dict", "memory": "dict", "sizes_bytes": "dict"}
-DISK_SCHEMA = {"free_bytes": "int", "total_bytes": "int"}
+DISK_SCHEMA = {"free_bytes": "int?", "total_bytes": "int?"}
 MEMORY_SCHEMA = {"pressure_level": "str?", "free_percentage": "int?", "swap_total_bytes": "int?", "swap_used_bytes": "int?"}
 SIZES_SCHEMA = {k: "int?" for k in ("worktrees_escaneadas", "paseo_fora_worktrees", "claude", "codex", "ai_os_state",
                                     "gemini", "library_caches_informativo")}
@@ -767,6 +944,41 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M")
 
 
+def rotate_scans(directory: Path, keep: int = 28) -> None:
+    """Remove apenas saídas identificadas da ferramenta no diretório canônico."""
+    canonical = wd._state_dir() / "higiene"
+    if directory.absolute() != canonical.absolute() or directory.is_symlink():
+        return
+    if any(parent.is_symlink() for parent in (directory, *directory.parents)):
+        return
+    generated = {"scan": [], "plano": []}
+    try:
+        candidates = list(directory.iterdir())
+    except OSError:
+        print("hygiene: diretório de rotação indisponível; scan preservado", file=sys.stderr)
+        return
+    for path in candidates:
+        match = re.fullmatch(r"(scan|plano)-\d{8}-\d{4}(?:\d{2})?\.(json|md)", path.name)
+        if not match or path.is_symlink() or not path.is_file():
+            continue
+        kind = match[1]
+        if (kind, match[2]) not in (("scan", "json"), ("plano", "md")):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            owned = (json.loads(text).get("source") == "hygiene") if kind == "scan" else text.startswith("<!-- hygiene:generated -->\n")
+            if owned:
+                generated[kind].append(path)
+        except (OSError, ValueError, AttributeError):
+            continue
+    for paths in generated.values():
+        for path in sorted(paths, key=lambda item: item.name, reverse=True)[keep:]:
+            try:
+                path.unlink()
+            except OSError:
+                print("hygiene: não foi possível remover uma saída antiga; rotação continua", file=sys.stderr)
+
+
 def _write_private(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -784,6 +996,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_scan = sub.add_parser("scan", help="inventário em JSON")
     p_scan.add_argument("--out", help="arquivo de saída ('-' = stdout); padrão: <state>/higiene/scan-AAAAMMDD-HHMM.json")
+    p_scan.add_argument("--scheduled-result", type=Path, help=argparse.SUPPRESS)
+    p_scan.add_argument("--scheduled-token", help=argparse.SUPPRESS)
     p_scan.add_argument("--repo", default=None, help="repo cujas worktrees registradas entram (padrão: este)")
     p_plan = sub.add_parser("plan", help="plano em Markdown")
     p_plan.add_argument("--scan", help="scan JSON existente (padrão: roda um scan novo, em memória)")
@@ -794,6 +1008,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     home, state = Path.home(), wd._state_dir()
+    scheduled = args.cmd == "scan" and args.scheduled_result is not None
+    started = time.perf_counter()
+    ok = False
+    if scheduled:
+        if not args.scheduled_token:
+            parser.error("scheduled-result exige token")
+        def stop_scan(signum, frame):
+            raise ScanInterrupted("coleta agendada interrompida pelo limite de 120 s")
+        prior_term = signal.signal(signal.SIGTERM, stop_scan)
+        prior_alarm = signal.signal(signal.SIGALRM, stop_scan)
+        signal.alarm(120)
     try:
         if args.cmd == "plan" and args.scan:
             try:
@@ -811,6 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 target = Path(args.out) if args.out else state / "higiene" / f"scan-{_stamp()}.json"
                 _write_private(target, text)
+                rotate_scans(target.parent)
                 print(f"scan salvo em {target}", file=sys.stderr)
         else:
             if isinstance(scan.get("processes"), dict):
@@ -822,15 +1048,25 @@ def main(argv: list[str] | None = None) -> int:
                     if not isinstance(row, dict) or not isinstance(row.get("pid"), int):
                         continue
                     row["pid_reused"] = current is None or current.get(row["pid"]) != row.get("start_time")
-            text = render_plan(scan, args.days, args.orphan_hours) + "\n"
+            text = "<!-- hygiene:generated -->\n" + render_plan(scan, args.days, args.orphan_hours) + "\n"
             if args.out:
                 _write_private(Path(args.out), text)
+                rotate_scans(Path(args.out).parent)
                 print(f"plano salvo em {args.out}", file=sys.stderr)
             else:
                 sys.stdout.write(text)
-    except (HygieneError, wd.PolicyError, OSError, ValueError, KeyError, TypeError) as exc:
+        ok = True
+    except (ScanInterrupted, HygieneError, wd.PolicyError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"hygiene: {exc}", file=sys.stderr)
         return 2
+    finally:
+        if scheduled:
+            signal.alarm(0)
+            signal.signal(signal.SIGTERM, prior_term)
+            signal.signal(signal.SIGALRM, prior_alarm)
+            result = {"token": args.scheduled_token, "pid": os.getpid(), "ok": ok,
+                      "finished_at": wd._iso(_now()), "duration_ms": round((time.perf_counter() - started) * 1000, 3)}
+            wd.write_hygiene_json(args.scheduled_result, result)
     return 0
 
 

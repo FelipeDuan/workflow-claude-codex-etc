@@ -41,6 +41,9 @@ subprocess com timeout, sem shell=True.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import signal
+import uuid
 import json
 import math
 import time
@@ -119,6 +122,7 @@ class Policy:
     rules: list[Rule]
     allowed_roots: list[Path]
     reminder_min: float = 0
+    hygiene_scan_hours: float = 6
 
 
 # ------------------------------------------------------------------ utilidades
@@ -248,7 +252,10 @@ def load_policy(path: Path) -> Policy:
     reminder = data.get("reminder_min", 0)
     if type(reminder) not in (int, float) or not math.isfinite(reminder) or reminder < 0:
         raise PolicyError("reminder_min precisa ser um número não negativo")
-    return Policy(rules, roots, reminder)
+    interval = data.get("hygiene_scan_hours", 6)
+    if type(interval) not in (int, float) or not math.isfinite(interval) or interval < 0:
+        raise PolicyError("hygiene_scan_hours precisa ser um número não negativo")
+    return Policy(rules, roots, reminder, interval)
 
 
 def load_restricted_roots(path: Path) -> list[Path]:
@@ -946,6 +953,150 @@ def _classify(inspect: dict, pending: list[dict], now: datetime, previous: str) 
     return "parado", f"status desconhecido '{raw or '?'}'", updated
 
 
+def write_hygiene_json(path: Path, data: dict) -> None:
+    """Resultado e ownership privados, substituídos atomicamente."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(data, ensure_ascii=False) + "\n")
+    os.replace(temporary, path)
+
+
+def _hygiene_pid_identity(pid: int) -> tuple[str, str | None]:
+    """Ausência confirmada difere de erro: só identidade observada permite sinal."""
+    try:
+        result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart=,stat="],
+                                capture_output=True, text=True, timeout=3,
+                                env={**os.environ, "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown", None
+    if result.returncode == 1 and not result.stdout.strip() and not result.stderr.strip():
+        return "gone", None
+    match = re.fullmatch(r"\s*(\w+\s+\w+\s+\d+\s+\d\d:\d\d:\d\d\s+\d{4})\s+(\S+)\s*", result.stdout)
+    if result.returncode != 0 or not match:
+        return "unknown", None
+    return ("gone" if match[2].startswith("Z") else "alive"), " ".join(match[1].split())
+
+
+def _hygiene_result(job: dict, path: Path) -> dict | None:
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+        if (isinstance(result, dict) and result.get("token") == job.get("token")
+                and (job.get("pid") is None or result.get("pid") == job["pid"])
+                and type(result.get("ok")) is bool
+                and type(result.get("duration_ms")) in (int, float)
+                and math.isfinite(result["duration_ms"]) and result["duration_ms"] >= 0
+                and _parse_ts(result.get("finished_at")) is not None):
+            return result
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def _scheduled_hygiene_scan(state: dict, now: datetime, policy: Policy, log_path: Path,
+                           dry_run: bool = False) -> None:
+    """Supervisiona o filho entre ciclos sem aguardar o inventário pesado."""
+    if dry_run:
+        return
+    directory = _state_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    schedule_path = directory / "hygiene-schedule.json"
+    # Estado próprio evita que o snapshot antigo de main sobrescreva ownership.
+    with (directory / ".hygiene-schedule.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        try:
+            schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+            if not isinstance(schedule, dict):
+                raise ValueError("estado inválido")
+        except FileNotFoundError:
+            schedule = {"last_hygiene_scan_at": state.get("last_hygiene_scan_at")}
+        except (OSError, ValueError):
+            log_event(log_path, now, "hygiene_scan_error", detalhe="estado de supervisão ilegível; nenhum scan iniciado")
+            return
+        def save():
+            write_hygiene_json(schedule_path, schedule)
+            state["last_hygiene_scan_at"] = schedule.get("last_hygiene_scan_at")
+            state["hygiene_job"] = schedule.get("job")
+        job = schedule.get("job")
+        if isinstance(job, dict):
+            result_path = directory / "hygiene-scan-result.json"
+            result = _hygiene_result(job, result_path)
+            pid = job.get("pid") or (result.get("pid") if result else None)
+            identity, started = _hygiene_pid_identity(pid) if type(pid) is int else ("unknown", None)
+            reused = identity == "alive" and job.get("start_time") and started != job["start_time"]
+            if identity == "gone" or reused:
+                ok = bool(result and result["ok"] and not job.get("term_at"))
+                reason = None if ok else ("scan excedeu timeout" if job.get("term_at") else
+                                          "scan falhou" if result else "filho terminou sem resultado; duração desconhecida")
+                append_history(state, now, history_record("collector.hygiene_scan", now,
+                    occurred_at=result["finished_at"] if result else None, confidence="observed" if result else "unknown",
+                    ok=ok, status="ok" if ok else "erro", duration_ms=result["duration_ms"] if result else None,
+                    reason=reason), log_path)
+                schedule.pop("job", None)
+                save()
+                return
+            launched = _parse_ts(job.get("started_at"))
+            if (identity == "alive" and job.get("start_time") == started and launched
+                    and now - launched >= timedelta(seconds=120)):
+                term = _parse_ts(job.get("term_at"))
+                action = signal.SIGKILL if term and now - term >= timedelta(seconds=30) else signal.SIGTERM
+                if not term or (action == signal.SIGKILL and not job.get("kill_at")):
+                    # Nunca sinaliza por nome, grupo ou PID sem início confirmado.
+                    try:
+                        os.kill(pid, action)
+                        job["kill_at" if action == signal.SIGKILL else "term_at"] = _iso(now)
+                    except ProcessLookupError:
+                        pass
+                    except OSError:
+                        job["signal_error"] = "não foi possível sinalizar o coletor próprio"
+            if identity == "unknown":
+                job["reason"] = "identidade não confirmada; novo scan bloqueado"
+            save()
+            return
+        last = _parse_ts(schedule.get("last_hygiene_scan_at"))
+        interval = policy.hygiene_scan_hours
+        if interval == 0 or (last and now - last < timedelta(hours=interval)):
+            save()
+            return
+        token = uuid.uuid4().hex
+        job = {"pid": None, "start_time": None, "started_at": _iso(now), "token": token,
+               "result": "hygiene-scan-result.json", "output": "hygiene-scan.log"}
+        schedule.update(last_hygiene_scan_at=_iso(now), job=job)
+        save()  # Intento persistido antes do spawn; erro jamais cria segundo filho.
+        try:
+            fd = os.open(directory / "hygiene-scan.log", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as output:
+                child = subprocess.Popen([sys.executable, str(REPO_ROOT / "scripts/hygiene.py"), "scan",
+                    "--scheduled-result", str(directory / "hygiene-scan-result.json"), "--scheduled-token", token],
+                    stdin=subprocess.DEVNULL, stdout=output, stderr=output, start_new_session=True)
+        except OSError:
+            schedule.pop("job", None)
+            save()
+            append_history(state, now, history_record("collector.hygiene_scan", now,
+                occurred_at=_iso(now), confidence="unknown", ok=False, status="erro", duration_ms=None,
+                reason="não foi possível iniciar o scan"), log_path)
+            return
+        # Depois do spawn, falha de persistência nunca libera o intento anterior.
+        job["pid"] = child.pid
+        save()
+        identity, started = _hygiene_pid_identity(child.pid)
+        if identity == "alive":
+            job["start_time"] = started
+        save()
+
+
+def scheduled_hygiene_scan(state: dict, now: datetime, policy: Policy, log_path: Path,
+                           dry_run: bool = False) -> None:
+    try:
+        _scheduled_hygiene_scan(state, now, policy, log_path, dry_run)
+    except OSError:
+        log_event(log_path, now, "hygiene_scan_error", detalhe="falha ao persistir supervisão; ownership preservado")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Vigia dos agentes do Paseo.")
     parser.add_argument("--dry-run", action="store_true", help="não aprova, não notifica, não grava estado")
@@ -994,6 +1145,8 @@ def main(argv: list[str] | None = None) -> int:
             finish_cycle(state, now, log_path)
             write_json(state_path, state)
         return 1
+
+    scheduled_hygiene_scan(state, now, policy, log_path, args.dry_run)
 
     try:
         listed = paseo_json(["ls", "-a", "--json"])

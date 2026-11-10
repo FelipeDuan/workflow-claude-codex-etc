@@ -236,7 +236,83 @@ def interaction(ctx, root, since, until):
                                for (d, p), v in sorted(daily.items())]}
 
 
-def collect(ctx, state, since, until, archive=None, claude_root=None, live=True, runner=run):
+def latest_hygiene_scan(state, since, until, explicit=None):
+    candidates = [Path(explicit)] if explicit else (Path(state) / 'higiene').glob('scan-*.json')
+    selected, newest = None, None
+    for path in candidates:
+        try:
+            scan = json.loads(path.read_text(encoding='utf-8'))
+            if (not isinstance(scan, dict) or scan.get('version') != 1
+                    or not all(isinstance(scan.get(key), dict) for key in ('memory', 'disk', 'processes'))):
+                continue
+            when = stamp(scan.get('generated_at'))
+            if when and since <= when < until and (newest is None or when > newest):
+                selected, newest = scan, when
+        except (OSError, ValueError, AttributeError, TypeError):
+            continue
+    return selected, iso(newest) if newest else None
+
+
+def hygiene_metrics(scan, timestamp, metric):
+    """Projeta só números e nomes de componentes; nunca repassa caminhos ou erros brutos."""
+    missing = 'nenhum scan válido dentro da janela'
+    memory = scan.get('memory', {}) if scan else {}
+    if not isinstance(memory, dict):
+        memory = {}
+    result = {'observed_at': timestamp}
+    def value(name, raw, reason='leitura ausente ou inválida no scan'):
+        valid = number(raw) and raw >= 0
+        return metric('Q5.' + name, raw if valid else None, 1 if scan else 0,
+                      reason=None if valid else reason if scan else missing)
+    for name in ('swap_total_bytes', 'swap_used_bytes', 'free_percentage'):
+        raw = memory.get(name)
+        if name == 'free_percentage' and number(raw) and raw > 100:
+            raw = None
+        result[name] = value(name, raw)
+    result['pressure_level_code'] = value('pressure_level_code', memory.get('pressure_level_code'))
+    pressure = memory.get('pressure_level')
+    result['pressure_level'] = metric('Q5.pressure_level', pressure if pressure in ('normal', 'aviso', 'critica') else None,
+                                     1 if scan else 0, reason=None if pressure in ('normal', 'aviso', 'critica') else missing if not scan else 'pressão indisponível')
+    disk = scan.get('disk', {}) if scan else {}
+    result['disk_free_bytes'] = value('disk_free_bytes', disk.get('free_bytes') if isinstance(disk, dict) else None)
+    result['scan_ms'] = value('scan_ms', scan.get('scan_ms') if scan else None)
+    components = memory.get('components')
+    result['components'] = []
+    allowed = {'servidores órfãos', 'sessões Claude Code com filhos', 'processos de worktrees de agentes',
+               'OrbStack', 'Paseo (app+daemon)', 'Codex', 'OpenCode', 'ai-memory', 'playwright MCP',
+               'navegador', 'outros processos'}
+    if isinstance(components, list):
+        for row in components:
+            if not isinstance(row, dict):
+                continue
+            name = row.get('component')
+            if not isinstance(name, str):
+                continue
+            if name not in allowed and not re.fullmatch(r'outros apps: [\w .()+-]{1,60}', name):
+                name = 'outros apps'
+            footprint = value('component.footprint', row.get('footprint_bytes'))
+            partial = row.get('partial') is True
+            if partial and footprint['value'] is not None:
+                footprint.update(status='estimated', partial=True, reason='soma parcial dos PIDs presentes no top')
+            result['components'].append({'component': name, 'footprint_bytes': footprint,
+                'partial': partial, 'missing_count': value('component.missing_count', row.get('missing_count')),
+                'process_count': value('component.process_count', row.get('process_count'))})
+        result['components'].sort(key=lambda row: -(row['footprint_bytes']['value'] or 0))
+        result['components'] = result['components'][:10]
+    else:
+        result['components_status'] = metric('Q5.components', None, 0, reason=missing if not scan else 'footprint por componente indisponível')
+    processes = scan.get('processes', {}) if scan else {}
+    items = processes.get('items') if isinstance(processes, dict) and not processes.get('error') else None
+    from hygiene import classify_process
+    for klass in ('ORFAO_CANDIDATO', 'RESIDUO_AGENTE'):
+        matching = [row for row in items if isinstance(row, dict) and classify_process(row)[0] == klass] if isinstance(items, list) else None
+        footprints = [row.get('footprint_bytes') for row in matching] if matching is not None else None
+        result[klass] = {'count': value(klass + '.count', len(matching) if matching is not None else None),
+            'footprint_bytes': value(klass + '.footprint', sum(footprints) if footprints is not None and all(number(v) and v >= 0 for v in footprints) else None)}
+    return result
+
+
+def collect(ctx, state, since, until, archive=None, claude_root=None, live=True, runner=run, hygiene_scan=None):
     window = {'since': iso(since), 'until': iso(until), 'timezone': str(ctx.tz), 'end_exclusive': True}
     insufficient = []
 
@@ -446,7 +522,8 @@ def collect(ctx, state, since, until, archive=None, claude_root=None, live=True,
                                   reason='somente lacunas registradas; ausência de diário/lacunas não prova coleta contínua'),
           'collector_gap_minutes': metric('Q4.collector_gap_minutes', round(sum((b - a).total_seconds() for a, b in merged) / 60, 3) if collector_seen else None,
                                           len(gaps))}
-    q5 = {'by_day': []}
+    scan, timestamp = latest_hygiene_scan(state, since, until, hygiene_scan)
+    q5 = {'by_day': [], 'hygiene_scan': hygiene_metrics(scan, timestamp, metric)}
     for day, row in sorted(daily.items()):
         cycles, total, maximum, size = (row.get(k) for k in ('cycles', 'total_ms', 'max_ms', 'bytes_appended'))
         count = cycles if number(cycles) and cycles > 0 else 0
@@ -467,7 +544,8 @@ def collect(ctx, state, since, until, archive=None, claude_root=None, live=True,
                 'Primeiro avistamento não prova início; denominadores que o usam são estimados.',
                 'Restrição de transcripts usa cwd, checkout principal do worktree e pasta codificada; falha ao resolver origem vira restrito.',
                 'Somente arquivos mensais da janela são lidos; bordas não são preenchidas.',
-                'P1 não registra motivo específico do erro: saturações podem ficar desconhecidas.', PROXY_NOTE]}
+                'P1 não registra motivo específico do erro: saturações podem ficar desconhecidas.',
+                'Footprint do top inclui páginas compartilhadas e comprimidas; não é memória exclusiva.', PROXY_NOTE]}
 
 
 def render_md(report):
@@ -487,21 +565,29 @@ def render_md(report):
               'permission_waits_over_10_minutes': 'Esperas por permissão acima de 10 min',
               'collector_gaps': 'Lacunas registradas do coletor', 'collector_gap_minutes': 'Lacunas do coletor (min)',
               'collector_cost': 'Custo do coletor', 'cycles': 'Ciclos', 'mean_ms': 'Média por ciclo (ms)',
-              'max_ms': 'Máximo por ciclo (ms)', 'bytes': 'Bytes gravados'}
+              'max_ms': 'Máximo por ciclo (ms)', 'bytes': 'Bytes gravados',
+              'hygiene_scan': 'Scan de higiene', 'swap_total_bytes': 'Swap alocado (bytes)',
+              'swap_used_bytes': 'Swap usado (bytes)', 'pressure_level': 'Pressão de memória',
+              'pressure_level_code': 'Nível de pressão (1 normal, 2 aviso, 4 crítico)',
+              'free_percentage': 'Memória livre (%)', 'disk_free_bytes': 'Disco livre (bytes)',
+              'scan_ms': 'Custo do scan (ms)', 'footprint_bytes': 'Footprint (bytes)',
+              'process_count': 'Processos', 'count': 'Quantidade', 'components_status': 'Componentes',
+              'missing_count': 'PIDs sem footprint',
+              'ORFAO_CANDIDATO': 'ORFAO_CANDIDATO', 'RESIDUO_AGENTE': 'RESIDUO_AGENTE'}
     rates = {'first_delivery_acceptance', 'rework_rate', 'evaluation_coverage', 'link_coverage', 'technical_failure_rate'}
 
     def table_rows(obj, prefix='', key=''):
         if isinstance(obj, dict) and 'status' in obj and 'value' in obj:
-            context = ' / '.join(str(obj[k]) for k in ('provider', 'pool', 'window_kind', 'date') if obj.get(k) is not None)
+            context = ' / '.join(str(obj[k]) for k in ('provider', 'pool', 'window_kind', 'date', 'component') if obj.get(k) is not None)
             prefix = ' · '.join(filter(None, (context, prefix)))
             value = obj['value']
             shown = 'unknown' if value is None else (f'{value * 100:.1f}%' if key in rates else f'{value:g}' if number(value) else str(value))
             yield f"| {prefix} | {shown} | {obj['n']} | {obj['status']} |"
         elif isinstance(obj, dict):
-            context = ' / '.join(str(obj[k]) for k in ('provider', 'pool', 'window_kind', 'date') if obj.get(k) is not None)
+            context = ' / '.join(str(obj[k]) for k in ('provider', 'pool', 'window_kind', 'date', 'component') if obj.get(k) is not None)
             for name, value in obj.items():
                 if name in labels:
-                    yield from table_rows(value, ' · '.join(filter(None, (context, labels[name]))), name)
+                    yield from table_rows(value, ' · '.join(filter(None, (prefix, context, labels[name]))), name)
                 elif isinstance(value, list):
                     yield from table_rows(value, prefix, name)
         elif isinstance(obj, list):
@@ -511,6 +597,9 @@ def render_md(report):
     for question in ('Q1', 'Q2', 'Q3', 'Q4', 'Q5'):
         lines.extend(['', f'## {question}', '', '| Métrica | Valor | n | Status |', '|---|---:|---:|---|',
                       *table_rows(report[question])])
+    lines.extend(['', 'Scan de recursos observado em: ' + (report['Q5']['hygiene_scan']['observed_at'] or 'unknown') + '.',
+                  'Footprint inclui páginas compartilhadas e comprimidas; não é memória exclusiva. '
+                  'Com PIDs ausentes no top, a soma disponível é parcial (estimated); PIDs sem footprint aparecem ao lado.'])
     lines.extend(['', 'Os detalhes por tarefa, dia e projeto estão em `relatorio.json`.', '', PROXY_NOTE])
     lines.extend(['', '## Limites de leitura', '', *('- ' + item for item in report['limitations']), '',
                   f"Linhas inválidas no histórico: {report['read']['invalid_lines']}; nos transcripts: {report['read']['transcript_invalid_lines']}.", ''])
@@ -536,6 +625,7 @@ def main(argv=None):
     ap.add_argument('--archive-dir', type=Path)
     ap.add_argument('--claude-dir', type=Path)
     ap.add_argument('--restricted-config', type=Path, default=REPO / 'config/ai-os-memory.toml')
+    ap.add_argument('--hygiene-scan', type=Path, help='scan explícito, sempre limitado à janela')
     ap.add_argument('--no-paseo-live', action='store_true')
     ap.add_argument('--out', type=Path, help='diretório para RELATORIO.md e relatorio.json')
     a = ap.parse_args(argv)
@@ -550,12 +640,12 @@ def main(argv=None):
     state = a.state_dir or Path(os.environ.get('AI_OS_STATE_DIR', str(a.home / '.local/state/ai-os')))
     ctx = Ctx(tz=tz, until=until, home=a.home, restricted=load_restricted(a.restricted_config, a.home))
     report = collect(ctx, state, since, until, a.archive_dir or state / 'arquivo-agentes', a.claude_dir,
-                     live=not a.no_paseo_live)
+                     live=not a.no_paseo_live, hygiene_scan=a.hygiene_scan)
     out = a.out or state / 'relatorios' / f'{since.astimezone(tz):%Y%m%d}-{until.astimezone(tz):%Y%m%d}'
     out.mkdir(parents=True, exist_ok=True)
     (out / 'relatorio.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
     (out / 'RELATORIO.md').write_text(render_md(report), encoding='utf-8')
-    print(f'ok: {out}; {report["read"]["files"]} arquivos mensais; {report["read"]["invalid_lines"]} linhas inválidas')
+    print(f'ok: relatório gerado; {report["read"]["files"]} arquivos mensais; {report["read"]["invalid_lines"]} linhas inválidas')
     return 0
 
 

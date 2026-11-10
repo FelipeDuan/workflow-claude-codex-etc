@@ -248,12 +248,20 @@ def main(argv=None):
                         brief = []
                         for row in leftovers:
                             klass = row["class"]
-                            print(f"- pid {row['pid']} ({row['command']}), {klass}, "
-                                  f"RSS {row['rss_bytes']} bytes: {'; '.join(row['why'])}", file=sys.stderr)
-                            for command in row["suggested_commands"]:
-                                print(f"  sugestão (NÃO executada): {command}", file=sys.stderr)
+                            if klass in {"ORFAO_CANDIDATO", "RESIDUO_AGENTE"}:
+                                print(f"- pid {row['pid']} ({row['command']}), {klass}, "
+                                      f"RSS {row['rss_bytes']} bytes: {'; '.join(row['why'])}", file=sys.stderr)
+                                for command in row["suggested_commands"]:
+                                    print(f"  sugestão (NÃO executada): {command}", file=sys.stderr)
                             brief.append({"pid": row["pid"], "tipo": row["command"], "classe": klass,
                                           "memoria_rss_bytes": row["rss_bytes"]})
+                        counts = {}
+                        for row in leftovers:
+                            if row["class"] not in {"ORFAO_CANDIDATO", "RESIDUO_AGENTE"}:
+                                counts[row["class"]] = counts.get(row["class"], 0) + 1
+                        if counts:
+                            summary = ", ".join(f"{klass}: {count}" for klass, count in sorted(counts.items()))
+                            print(f"{sum(counts.values())} processos preservados/desconhecidos ({summary})", file=sys.stderr)
                         leftover_event = {"schema_version": 1, "type": "resource.leftover", "occurred_at": stamp,
                                           "observed_at": stamp, "source": "ai-os-task", "source_version": VERSION,
                                           "confidence": "observed", "task_id": task_id, "worktrees": paths,

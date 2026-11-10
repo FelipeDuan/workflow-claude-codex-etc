@@ -48,7 +48,7 @@ def _summary(command: str) -> str:
     return names[0]
 
 
-def _parse_ps(output: str | None) -> dict[int, dict]:
+def _parse_ps(output: str | None, *, raw: bool = False) -> dict[int, dict]:
     processes = {}
     if output is None:
         return processes
@@ -61,6 +61,8 @@ def _parse_ps(output: str | None) -> dict[int, dict]:
         pid, ppid, started, rss, command = match.groups()
         processes[int(pid)] = {"pid": int(pid), "ppid": int(ppid), "start_time": started.strip(),
                                "rss_bytes": int(rss) * 1024, "command": _summary(command)}
+        if raw:
+            processes[int(pid)]["raw_command"] = command
     return processes
 
 
@@ -156,19 +158,32 @@ def _ancestor_pids(processes: dict[int, dict], pid: int) -> set[int]:
 
 
 def scan_processes(worktrees: list[dict], *, target: str | None = None, exclude_pid: int | None = None,
-                   include_tcp: bool = True, timeout: float = 3) -> tuple[list[dict], float, str | None]:
+                   include_tcp: bool = True, timeout: float = 3,
+                   snapshot: dict | None = None, after_ps=None,
+                   exclude_tree_pid: int | None = None) -> tuple[list[dict], float, str | None]:
     """Escaneia processos do usuário em worktrees. O retorno inclui custo em ms e erro."""
     started = time.perf_counter()
     uid = str(os.getuid())
     ps = _run(["ps", "-U", uid, "-o", "pid=,ppid=,lstart=,rss=,command="], timeout)
+    rows = _parse_ps(ps)
+    if snapshot is not None:
+        snapshot.update(rows=_parse_ps(ps, raw=True), exclude_tree_pid=exclude_tree_pid)
+    if after_ps is not None:
+        after_ps(snapshot)
     # Uma chamada global de cwd evita uma invocação lsof por PID.
     user = getpass.getuser()
     cwd_out = _run(["lsof", "-nP", "-a", "-u", user, "-d", "cwd", "-Fpcn"], timeout)
     tcp_out = _run(["lsof", "-nP", "-a", "-u", user, "-iTCP", "-FpnfT"], timeout) if include_tcp else None
-    rows, cwds = _parse_ps(ps), _parse_cwds(cwd_out)
+    cwds = _parse_cwds(cwd_out)
+    if snapshot is not None:
+        snapshot.update(rows=_parse_ps(ps, raw=True), cwds=cwds,
+                        reason=("ps indisponível ou inválido" if ps is None or not rows else
+                                "lsof cwd indisponível" if cwd_out is None else None))
     listen, established, active = _parse_tcp(tcp_out) if include_tcp else ({}, {}, {})
     error = None if ps is not None and cwd_out is not None and (not include_tcp or tcp_out is not None) else "ps/lsof indisponível"
     excluded = _ancestor_pids(rows, exclude_pid) if exclude_pid is not None else set()
+    if exclude_tree_pid is not None:
+        excluded.update(pid for pid in rows if exclude_tree_pid in _ancestor_pids(rows, pid))
     result = []
     for pid, row in rows.items():
         cwd = cwds.get(pid)
