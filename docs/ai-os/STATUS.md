@@ -199,7 +199,7 @@ Estado: alterados `install.sh`, `scripts/harden.py`, `scripts/stop-failure.py`, 
 - Claude-Mem: transcript-watch do Codex desligado (I-22).
 - Fechamento do M0: falta só testar o Claude no Paseo esperando o reset do limite (depende de bater o limite de verdade; registrar quando acontecer).
 
-## ESTADO ATUAL E PENDÊNCIAS (fonte única, atualizado em 26/10/2026). Ler isto primeiro
+## ESTADO ATUAL E PENDÊNCIAS (fonte única; frentes atualizadas até 09/11/2026, v0.2.2 — o "Próximo passo exato" está no fim do arquivo). Ler isto primeiro
 **Concluído desde 25/10**
 - SGG onda 1 completa: `sgg-v3-docs`, branch `analise/2026-10` (sem push), documentos 01–14 (estado v1/v2, auditoria v3, rastreabilidade, pauta de decisões, plano urgente v2, revalidação + NFR, itens ausentes, concorrentes, visão de produto, programa, legal, necessidades, integrações, dados/analytics).
 - `paseo schedule` validado de verdade: P4/W1/W4 dispararam sozinhos depois do reset do Codex.
